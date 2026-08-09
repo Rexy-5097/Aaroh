@@ -1,0 +1,21 @@
+# CODEOWNERS — Aaroh
+# GitHub automatically requests review from code owners when PRs touch these files.
+# Format: <pattern> <owner1> <owner2> ...
+#
+# NOTE: @Rexy-5097 is assumed to be the maintainer handle. Correct this if wrong —
+# an invalid handle silently disables code owner review requests.
+
+# Default owner for everything
+*                       @Rexy-5097
+
+# Governance files — maintainer review required
+README.md               @Rexy-5097
+CONTRIBUTING.md         @Rexy-5097
+CODE_OF_CONDUCT.md      @Rexy-5097
+SECURITY.md             @Rexy-5097
+VERSION_POLICY.md       @Rexy-5097
+VERSION                 @Rexy-5097
+
+# Repository configuration
+.github/                @Rexy-5097
+.gitignore              @Rexy-5097

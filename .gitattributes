@@ -1,0 +1,13 @@
+# Normalize line endings to LF in the repository, matching .editorconfig.
+# Without this, contributors on Windows commit CRLF and every diff is noise.
+* text=auto eol=lf
+
+# Binary files — never normalize
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.ico binary
+*.woff binary
+*.woff2 binary
