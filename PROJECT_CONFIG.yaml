@@ -1,0 +1,32 @@
+project:
+  name: Aaroh
+  version: 0.0.0
+  profile: ai_project
+  framework: UNDECIDED
+  languages:
+  - UNDECIDED
+  owner: Rexy-5097
+  # PROJECT_CONFIG.example.yaml marks `goals` as Required, but
+  # bootstrap_project.py omits it when writing this file. Restored by hand.
+  goals: A transparent, constraint-aware career decision engine that helps students
+    identify the highest-impact use of their limited preparation time. The Career
+    Readiness Score is a transparent measurement inside the system, not the product
+    itself.
+  deadline: UNDECIDED
+  status: INITIALIZED
+enabled_features:
+  standards:
+  - standards/code_quality.md
+  - standards/ai_ml.md
+  - standards/testing.md
+  agents:
+  - agents/ai-reviewer.md
+  - agents/orchestrator.md
+  quality_gates:
+  - QG-001
+  - QG-002
+  - QG-003
+  - QG-004
+  metrics:
+  - metrics/benchmarks.md
+  - metrics/quality.md
