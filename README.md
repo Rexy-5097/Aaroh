@@ -78,7 +78,10 @@ Everything currently in this repository is governance and identity. There are no
 | [VERSION_POLICY.md](./VERSION_POLICY.md) | Semantic versioning rules for this project |
 | [CHANGELOG.md](./CHANGELOG.md) | Change history |
 | [VERSION](./VERSION) | Current version, plain text |
+| [docs/DEVELOPMENT_SETUP.md](./docs/DEVELOPMENT_SETUP.md) | How to clone and set up Aaroh on a fresh machine |
 | [.github/](./.github/) | Issue templates, PR template, code ownership, labels |
+
+The AgentOS framework is vendored at the repository root (`AGENTOS.md`, `agents/`, `workflows/`, `standards/`, `checklists/`, `templates/`, `runtime/`, `validation/`, and others). Start with [AGENTOS.md](./AGENTOS.md), and see [docs/DEVELOPMENT_SETUP.md](./docs/DEVELOPMENT_SETUP.md) to get a machine running.
 
 ---
 

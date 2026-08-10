@@ -9,6 +9,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) pe
 
 ## [Unreleased]
 
+### Added — development handoff preparation
+
+Prepared the repository to be the complete source of truth for a machine-to-machine
+handoff (Windows → macOS). No feature work, no architecture changes, no history rewrite.
+
+- `docs/DEVELOPMENT_SETUP.md` — fresh-machine setup: prerequisites, git identity,
+  dependency install, validation commands with expected output, known upstream
+  defects, open decisions, and why the validator scores 83/100 rather than 100/100
+- `tools/requirements.txt` — the AgentOS toolchain's only third-party dependency
+  (PyYAML), verified by inspecting every import under `tools/`, `runtime/`, and
+  `validation/`. Explicitly *not* an application dependency manifest.
+- `README.md` — links the setup guide and notes the vendored framework layout
+
+No `.env.example` was created: Aaroh currently requires no environment variables
+and holds no secrets, so a template would have been fabricated configuration. The
+one optional variable, `AGENTOS_ROOT`, is documented in the setup guide.
+
 ### Added — AgentOS vendored and bootstrapped
 
 AgentOS v1.0.0 (from `Rexy-5097/raptors-way`) vendored into this repository and

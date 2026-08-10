@@ -1,0 +1,14 @@
+# Python dependencies for the vendored AgentOS toolchain ONLY.
+#
+# This is NOT Aaroh's application dependency manifest. Aaroh has no application
+# code and no chosen technology stack — `framework` and `languages` are UNDECIDED
+# in PROJECT_CONFIG.yaml. Do not treat this file as evidence that Aaroh is a
+# Python project.
+#
+# Scope: the scripts under tools/scripts/, runtime/, and validation/runner/.
+# Verified by inspecting every import across those trees; PyYAML is the only
+# third-party package. Everything else is Python standard library.
+#
+# Install:  python3 -m pip install -r tools/requirements.txt
+
+PyYAML>=6.0
