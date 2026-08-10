@@ -14,26 +14,41 @@
 
 ## System Overview
 
-> *One paragraph: what this system does and its primary architectural style.*
+Aaroh ranks career-preparation tasks by estimated readiness gain per unit of the user's available time, and surfaces one primary recommendation per day. It is a **modular monolith**: a Python backend holding the canonical deterministic decision engine, with thin TypeScript client shells. The load-bearing boundary is that the **engine decides and the LLM only explains** — the engine is a pure package that cannot import the AI layer, making the boundary structural rather than conventional (`ADR-0059`).
 
-[Describe the system in 2–4 sentences: its purpose, its key boundaries, and the architectural style (e.g., microservices, monolith, event-driven, ML pipeline, scientific compute cluster).]
+**Stage 0 status: no application code exists.** This document describes the ratified target, not an implemented system.
 
 ---
 
 ## Component Map
 
 ```
-[Draw an ASCII component diagram here. Example:]
-
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Frontend   │────▶│   API Layer  │────▶│   Database   │
-│  (React SPA) │     │  (FastAPI)   │     │  (Postgres)  │
-└──────────────┘     └──────┬───────┘     └──────────────┘
-                            │
-                     ┌──────▼───────┐
-                     │  ML Service  │
-                     │  (PyTorch)   │
-                     └──────────────┘
+┌───────────────┐   ┌───────────────┐        ┌──────────────────┐
+│  Mobile shell │   │   Web shell   │        │  Desktop shell   │
+│ Expo/RN + TS  │   │  Next.js + TS │        │   DEFERRED       │
+└───────┬───────┘   └───────┬───────┘        └──────────────────┘
+        │                   │
+        │  typed API (OpenAPI-generated types; no ranking logic)
+        └─────────┬─────────┘
+                  ▼
+        ┌─────────────────────────┐
+        │   FastAPI  (modular     │
+        │   monolith, per-domain) │
+        └───┬──────────┬──────────┘
+            │          │
+            │          ▼                    ┌────────────────────┐
+            │   ┌──────────────┐            │   AI Gateway       │
+            │   │   Decision   │            │  ai.execute()      │
+            │   │    Engine    │  ◀── NO ──▶│  sole provider     │
+            │   │ pure package │   IMPORT   │  entry point       │
+            │   └──────────────┘            └─────────┬──────────┘
+            │    decides                     explains │
+            ▼                                         ▼
+   ┌──────────────────┐                     ┌──────────────────┐
+   │ Supabase         │                     │  LLM provider    │
+   │ Postgres/Auth/   │                     │  (UNDECIDED)     │
+   │ Storage (RLS)    │                     └──────────────────┘
+   └──────────────────┘
 ```
 
 ---
@@ -42,8 +57,14 @@
 
 | Component | Responsibility | Technology | Owner |
 |-----------|---------------|-----------|-------|
-| [Name] | [Single responsibility] | [Tech — see tech_stack.md] | [Team/Person] |
-| [Name] | | | |
+| Decision engine | Ranking, scoring, confidence — **pure, no I/O** | Python package | Chief Architect |
+| Backend API | Domain services, persistence, orchestration | FastAPI | Rexy-5097 |
+| AI gateway | Sole entry point for every model call | Python | Rexy-5097 |
+| Mobile shell | Presentation only | Expo + React Native | Rexy-5097 |
+| Web shell | Presentation only | Next.js | Rexy-5097 |
+| Data layer | Source of truth, row isolation, private storage | Supabase | Rexy-5097 |
+
+**Invariant:** no client contains ranking or scoring arithmetic. Clients receive recommendation, ranking, score, confidence, explanation trace, `engine_version`, and `weights_version` from the API (`ADR-0059`, `ADR-0060`).
 
 ---
 

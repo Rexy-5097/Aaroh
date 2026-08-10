@@ -70,6 +70,15 @@
 | [ADR-0055](../artifacts/decisions/ADR-0055-validation-metrics.md) | Validation metrics dashboard parameters | Accepted | 2026-07-02 | High |
 | [ADR-0056](../artifacts/decisions/ADR-0056-readiness-criteria.md) | Exit readiness criteria for production releases | Accepted | 2026-07-02 | High |
 
+> ADR-0001 – ADR-0056 are **vendored AgentOS framework decisions**. Aaroh's own decisions begin at ADR-0057.
+
+| ID | Title | Status | Date | Impact |
+|----|-------|--------|------|--------|
+| [ADR-0057](../artifacts/decisions/ADR-0057-license-and-source-availability.md) | No licence — public repo, all rights reserved | Accepted | 2026-08-10 | High |
+| [ADR-0058](../artifacts/decisions/ADR-0058-technology-stack-and-platforms.md) | Stack: Expo + Next.js + FastAPI + Supabase; desktop deferred | Accepted | 2026-08-10 | High |
+| [ADR-0059](../artifacts/decisions/ADR-0059-decision-engine-architecture.md) | Decision engine canonical in Python backend as a pure package | Accepted | 2026-08-10 | High |
+| [ADR-0060](../artifacts/decisions/ADR-0060-engine-versioning-and-weights.md) | Weights-as-data, versioned traces, golden-file tests | Accepted | 2026-08-10 | High |
+
 ---
 
 ## Status Values

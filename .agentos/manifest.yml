@@ -561,6 +561,52 @@ files:
     phase: 13
     description: "Upgrade paths and backward compatibility policies"
 
+  # ─── Aaroh Project Layer ─────────────────────────────────────────────────
+  # Additive registrations for the Aaroh project. No infrastructure entry above
+  # was modified or removed. Selected only via profiles/aaroh.yaml; a downstream
+  # AgentOS consumer can delete this block and the referenced files to return to
+  # the stock template.
+
+  profiles/aaroh.yaml:
+    layer: project
+    description: "Aaroh profile — selects Aaroh standards, agents, and gates"
+    status: complete
+
+  standards/decision_engine.md:
+    layer: project
+    description: "Determinism, purity, weights-as-data, traceability (ADR-0059, ADR-0060)"
+    status: complete
+
+  standards/llm_integration.md:
+    layer: project
+    description: "Hosted-LLM consumption: gateway, schemas, PII minimisation, injection containment"
+    status: complete
+
+  standards/privacy.md:
+    layer: project
+    description: "Data classification, minimisation, retention, deletion, export, consent"
+    status: complete
+
+  agents/llm-reviewer.md:
+    layer: project
+    description: "Reviews LLM consumption, not model training. Does not replace ai-reviewer"
+    status: complete
+
+  checklists/decision_engine_change.md:
+    layer: project
+    description: "QG-009 — decision engine change gate"
+    status: complete
+
+  checklists/prompt_change.md:
+    layer: project
+    description: "QG-010 — prompt / model change gate"
+    status: complete
+
+  checklists/privacy_review.md:
+    layer: project
+    description: "QG-011 — privacy / personal data change gate"
+    status: complete
+
 
 
 

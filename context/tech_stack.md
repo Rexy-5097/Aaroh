@@ -14,38 +14,49 @@
 
 ## Core Stack
 
+> **Versions are deliberately unpinned.** They are established at Stage 0 against
+> actual compatibility testing, never asserted from memory (`ADR-0058`).
+
 | Layer | Technology | Version | Purpose | Selected Over | ADR |
 |-------|-----------|---------|---------|--------------|-----|
-| Language | [e.g., Python] | ≥ 3.11 | [Purpose] | [Alternatives] | [ADR-NNNN] |
-| Framework | [e.g., FastAPI] | ≥ 0.110 | [Purpose] | [Flask, Django] | |
-| Database | [e.g., PostgreSQL] | ≥ 15 | [Purpose] | [MySQL, SQLite] | |
-| Cache | [e.g., Redis] | ≥ 7 | [Purpose] | | |
-| Queue | [e.g., Celery + Redis] | | [Purpose] | | |
+| Backend language | Python | TBD at Stage 0 | Canonical decision engine + API | Node/TypeScript | ADR-0058 |
+| Client language | TypeScript | TBD | All client shells | — | ADR-0058 |
+| Backend framework | FastAPI | TBD | Modular monolith API | Flask, Django | ADR-0058 |
+| Mobile | Expo + React Native | TBD | iOS + Android | Flutter, bare RN, native | ADR-0058 |
+| Web | Next.js | TBD | Web + PWA | Remix, Vite SPA | ADR-0058 |
+| Desktop | **Deferred** | — | Revisit after web/mobile demand | Tauri, Electron | ADR-0058 |
+| Database | Supabase PostgreSQL | TBD | Source of truth; native row isolation | Self-hosted Postgres | ADR-0058 |
+| Auth | Supabase Auth | TBD | Single auth system | Custom, Auth0 | ADR-0058 |
+| Storage | Supabase Storage | TBD | Private resume storage, signed URLs | S3 | ADR-0058 |
+| JS packages | pnpm | TBD | Workspace management | npm, yarn | ADR-0058 |
+| Python packaging | **Not yet locked** | — | Decided when app deps exist | pip / uv / Poetry | ADR-0058 |
+| Cache / Queue | **None** | — | Excluded until a real requirement appears | Redis, Celery | ADR-0058 |
 
 ---
 
-## AI/ML Stack
+## AI Stack
 
-> Complete this section if the project involves AI, ML, or scientific computing.
+> Aaroh **trains no models**. It consumes a hosted LLM through a single gateway.
+> `standards/ai_ml.md` (training governance) is deliberately not enabled;
+> `standards/llm_integration.md` governs this layer instead.
 
-| Component | Technology | Version | Purpose | Notes |
-|-----------|-----------|---------|---------|-------|
-| Framework | [e.g., PyTorch] | ≥ 2.0 | [Training/inference] | [CUDA version required] |
-| Data | [e.g., Pandas, Polars] | | [Data processing] | |
-| Experiment Tracking | [e.g., MLflow, W&B] | | [Experiment logging] | See `artifacts/experiments/` |
-| Model Serving | [e.g., TorchServe, ONNX] | | [Inference] | |
+| Component | Technology | Purpose | Notes |
+|-----------|-----------|---------|-------|
+| AI Gateway | Internal (`ai.execute`) | Sole entry point for all model calls | No module outside it imports a provider SDK |
+| Provider | **UNDECIDED** | Extraction + explanation | Own ADR required; must offer schema-constrained output and a written no-training commitment |
+| Explanation | Deterministic templates | Renders the decision trace | LLM improves wording only; outage degrades tone, not function |
 
 ---
 
 ## Infrastructure
 
-| Component | Technology | Version | Purpose | Notes |
-|-----------|-----------|---------|---------|-------|
-| Container | [e.g., Docker] | ≥ 24 | [Containerization] | |
-| Orchestration | [e.g., Kubernetes] | | [Deployment] | |
-| CI/CD | [e.g., GitHub Actions] | | [Automation] | |
-| Cloud | [e.g., GCP, AWS] | | [Hosting] | [Region: ] |
-| Monitoring | [e.g., Prometheus + Grafana] | | [Observability] | |
+| Component | Technology | Purpose | Notes |
+|-----------|-----------|---------|-------|
+| Container | **Not used in development** | — | No local Postgres container; managed Supabase dev project instead (ADR-0058) |
+| Orchestration | **None** | — | No Kubernetes. Modular monolith |
+| CI/CD | GitHub Actions | Tests, lint, type check, secret scanning | |
+| Analytics | PostHog | Product analytics | Pseudonymous identifiers only |
+| Monitoring | Sentry | Crash/error monitoring | |
 
 ---
 

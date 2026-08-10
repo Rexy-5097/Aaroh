@@ -59,6 +59,16 @@ Every standard defines four quality levels. Projects self-select their target le
 | `api_design.md` | Component | APIs | `security-reviewer` + `docs-reviewer` |
 | `data_engineering.md` | Component | Data | `ai-reviewer` or `science-reviewer` |
 | `ui_ux.md` | Component | Frontend | `ui-reviewer` |
+| `privacy.md` | Cross-cutting | Personal data | `security-reviewer` |
+| `decision_engine.md` | Domain | Deterministic ranking/scoring cores | `chief-architect` + `qa-reviewer` |
+| `llm_integration.md` | Domain | Products consuming hosted LLMs | `llm-reviewer` |
+
+> **Project-registered standards.** The last three rows were added by the Aaroh
+> project following the "Adding a New Standard" procedure below, and are selected
+> only by `profiles/aaroh.yaml`. The addition is additive — no generic standard was
+> modified. `ai_ml.md` remains the correct standard for projects that *train*
+> models; `llm_integration.md` covers the different problem of *consuming* a hosted
+> model without training one.
 
 ---
 

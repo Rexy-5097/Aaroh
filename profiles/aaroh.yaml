@@ -1,0 +1,67 @@
+profile: aaroh
+description: "Aaroh — transparent, constraint-aware career decision engine. Product profile: deterministic engine + hosted-LLM explanation layer + sensitive personal data. Not an ML-training project."
+
+# Aaroh-specific profile. Additive: the eight generic AgentOS profiles
+# (ai_project, backend, frontend, ml, research, isro, hackathon, flagship)
+# are unmodified and remain fully reusable.
+#
+# NOTE: bootstrap_project.py validates its --profile CLI flag against a
+# hardcoded list of the eight generic profiles, so `--profile aaroh` is
+# rejected. This profile is selected via PROJECT_CONFIG.yaml, which
+# load_profile() reads from disk without that restriction. See ADR-0058
+# and DEVELOPMENT_SETUP.md.
+
+standards_enabled:
+  # Foundation
+  - standards/code_quality.md
+  - standards/testing.md
+  # Cross-cutting
+  - standards/security.md
+  - standards/privacy.md
+  # Domain — Aaroh-specific
+  - standards/decision_engine.md
+  - standards/llm_integration.md
+  # Component
+  - standards/api_design.md
+
+# Deliberately NOT enabled:
+#   standards/ai_ml.md   — governs model training; Aaroh trains no models.
+#                          Superseded for Aaroh by standards/llm_integration.md.
+#   standards/research.md — Aaroh publishes no research.
+
+agents_enabled:
+  - agents/orchestrator.md
+  - agents/chief-architect.md
+  - agents/security-reviewer.md
+  - agents/llm-reviewer.md
+  - agents/qa-reviewer.md
+  - agents/docs-reviewer.md
+
+# Deliberately NOT enabled:
+#   agents/ai-reviewer.md     — reviews ML training artifacts Aaroh will never produce.
+#                               Superseded for Aaroh by agents/llm-reviewer.md.
+#   agents/science-reviewer.md — no scientific claims; enabling it would invite false rigor.
+#   agents/performance-reviewer.md, agents/ui-reviewer.md, agents/release-reviewer.md
+#                             — deferred until there is a surface to review (Stage 1+).
+
+quality_gates_enabled:
+  - QG-001  # feature completion
+  - QG-002  # pull request
+  - QG-003  # QA signoff
+  - QG-005  # security review  <- absent from the ai_project profile; mandatory for Aaroh
+  - QG-009  # decision engine change   (Aaroh-specific)
+  - QG-010  # prompt / model change    (Aaroh-specific)
+  - QG-011  # privacy / personal data  (Aaroh-specific)
+
+# Deliberately NOT enabled:
+#   QG-004 — research validation; Aaroh publishes no research.
+#   QG-006, QG-008 — deployment and release; enabled at Stage 2+.
+#   QG-007 — bug fix closure; enabled once there is code to fix.
+#
+# NOTE: the AgentOS validator enforces QG-001..QG-008 only (expected_gates is
+# hardcoded in tools/scripts/validate_agentos.py, which is out of scope to
+# modify). QG-009..QG-011 are therefore governance contracts enforced by
+# review, not by the validator. See the phase report for the implication.
+
+metrics_enabled:
+  - metrics/quality.md
