@@ -70,6 +70,20 @@ FORBIDDEN_DEPENDENCIES = {"redis", "celery", "kubernetes", "kombu", "arq"}
 
 SEARCH_ROOTS = ["backend", "packages", "apps", "engine"]
 
+# ── ADR-0061: RLS and the data access boundary ────────────────────────────────
+# Where migrations will live. Update if Stage 0 chooses a different layout.
+MIGRATION_DIRS = ["supabase/migrations", "backend/migrations", "migrations", "db/migrations"]
+
+# I-2: service_role must never appear in request-serving code. Migration and
+# deploy tooling is exempt; everything else is a defect.
+SERVICE_ROLE_TOKENS = ("service_role", "SERVICE_ROLE", "SUPABASE_SERVICE_KEY")
+SERVICE_ROLE_EXEMPT_MARKERS = ("migrations/", "scripts/deploy", "tools/", ".github/")
+
+# I-8: the AI gateway holds no database credential.
+DB_CLIENT_MODULES = {
+    "sqlalchemy", "psycopg", "psycopg2", "asyncpg", "sqlite3", "supabase", "alembic",
+}
+
 
 class Result:
     def __init__(self) -> None:
@@ -290,6 +304,119 @@ def check_forbidden_dependencies(r: Result) -> None:
         r.ok("excluded infrastructure (ADR-0058)", f"{len(manifests)} manifest(s) clean")
 
 
+# ── Check 6: every user-owned table ships with RLS (ADR-0061 I-5) ─────────────
+def check_rls_migrations(r: Result) -> None:
+    dirs = [REPO_ROOT / d for d in MIGRATION_DIRS if (REPO_ROOT / d).is_dir()]
+    if not dirs:
+        r.armed(
+            "RLS on new tables (ADR-0061 I-5)",
+            "no migrations directory yet; activates at " + " | ".join(MIGRATION_DIRS),
+        )
+        return
+
+    violations: list[str] = []
+    checked = 0
+    for d in dirs:
+        for sql in sorted(d.rglob("*.sql")):
+            text = sql.read_text(encoding="utf-8")
+            lowered = text.lower()
+            if "create table" not in lowered:
+                continue
+            checked += 1
+            # A migration that creates a table must, in the same file, enable
+            # and force RLS and define at least one policy. A table exposed for
+            # even one deploy is a table that leaked.
+            if "enable row level security" not in lowered:
+                violations.append(f"{rel(sql)} creates a table without ENABLE ROW LEVEL SECURITY")
+            if "force row level security" not in lowered:
+                violations.append(
+                    f"{rel(sql)} creates a table without FORCE ROW LEVEL SECURITY "
+                    "(the table owner would bypass its own policies)"
+                )
+            if "create policy" not in lowered:
+                violations.append(f"{rel(sql)} creates a table with no policy defined")
+            if "create policy" in lowered and "with check" not in lowered:
+                violations.append(
+                    f"{rel(sql)} defines policies without WITH CHECK "
+                    "(USING alone permits writing rows owned by another user)"
+                )
+            if "disable row level security" in lowered:
+                violations.append(
+                    f"{rel(sql)} disables row level security — never permitted (I-10)"
+                )
+
+    if violations:
+        for v in violations:
+            r.bad("RLS on new tables (ADR-0061 I-5)", v)
+    else:
+        r.ok("RLS on new tables (ADR-0061 I-5)", f"{checked} table-creating migration(s) compliant")
+
+
+# ── Check 7: service_role stays out of request-serving code (I-2) ─────────────
+def check_service_role_isolation(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("service_role isolation (ADR-0061 I-2)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = rel(src).replace("\\", "/")
+            if any(m in path_str for m in SERVICE_ROLE_EXEMPT_MARKERS):
+                continue
+            for lineno, line in enumerate(src.read_text(encoding="utf-8").splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                for token in SERVICE_ROLE_TOKENS:
+                    if token in line:
+                        violations.append(
+                            f"{rel(src)}:{lineno} references '{token}' — service_role bypasses "
+                            "RLS and must never appear in request-serving code"
+                        )
+                        break
+
+    if violations:
+        for v in violations:
+            r.bad("service_role isolation (ADR-0061 I-2)", v)
+    else:
+        r.ok("service_role isolation (ADR-0061 I-2)", "no service_role reference in app code")
+
+
+# ── Check 8: the AI gateway holds no database credential (I-8) ────────────────
+def check_gateway_has_no_db(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    gateway_files = []
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = rel(src).replace("\\", "/")
+            if any(marker in path_str for marker in GATEWAY_PATH_MARKERS):
+                gateway_files.append(src)
+
+    if not gateway_files:
+        r.armed("AI gateway has no DB credential (ADR-0061 I-8)", "no AI gateway module yet")
+        return
+
+    violations: list[str] = []
+    for src in gateway_files:
+        try:
+            tree = ast.parse(src.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for module, lineno in imported_modules(tree):
+            if matches(module, DB_CLIENT_MODULES):
+                violations.append(
+                    f"{rel(src)}:{lineno} imports database client '{module}' — the AI gateway "
+                    "must have no path to user data"
+                )
+
+    if violations:
+        for v in violations:
+            r.bad("AI gateway has no DB credential (ADR-0061 I-8)", v)
+    else:
+        r.ok("AI gateway has no DB credential (ADR-0061 I-8)", f"{len(gateway_files)} file(s) clean")
+
+
 def main() -> int:
     r = Result()
     print("Aaroh governance checks")
@@ -300,6 +427,9 @@ def main() -> int:
     check_engine_purity(r)
     check_gateway_isolation(r)
     check_forbidden_dependencies(r)
+    check_rls_migrations(r)
+    check_service_role_isolation(r)
+    check_gateway_has_no_db(r)
 
     for line in r.lines:
         print(line)

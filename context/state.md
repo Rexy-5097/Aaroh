@@ -29,10 +29,11 @@ Environment reconstructed on macOS from the GitHub source of truth and validated
 
 | Topic | Why it blocks |
 |-------|--------------|
-| Supabase RLS enforcement model | `service_role` bypasses RLS entirely; the security posture depends on this |
+| ~~Supabase RLS enforcement model~~ | **Decided — ADR-0061** |
+| Core domain model / schema | Must conform to ADR-0061: `user_id` column + policies in the creating migration |
+| Resume ingestion / untrusted file handling | Largest attack surface; precedes any upload code |
 | AI provider selection | Needs current data-retention terms verified at decision time |
 | PII minimisation pipeline | Gates every external model call |
-| Resume ingestion / untrusted file handling | Largest attack surface; precedes any upload code |
 | OpenAPI as contract + client type generation | Prevents drift across shells |
 
 ## Known unresolved risks

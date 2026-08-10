@@ -78,6 +78,7 @@
 | [ADR-0058](../artifacts/decisions/ADR-0058-technology-stack-and-platforms.md) | Stack: Expo + Next.js + FastAPI + Supabase; desktop deferred | Accepted | 2026-08-10 | High |
 | [ADR-0059](../artifacts/decisions/ADR-0059-decision-engine-architecture.md) | Decision engine canonical in Python backend as a pure package | Accepted | 2026-08-10 | High |
 | [ADR-0060](../artifacts/decisions/ADR-0060-engine-versioning-and-weights.md) | Weights-as-data, versioned traces, golden-file tests | Accepted | 2026-08-10 | High |
+| [ADR-0061](../artifacts/decisions/ADR-0061-rls-and-security-boundary.md) | RLS enforced under the caller's identity; service_role never in request path | Accepted | 2026-08-10 | High |
 
 ---
 
