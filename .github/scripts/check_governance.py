@@ -365,7 +365,13 @@ def check_rls_migrations(r: Result) -> None:
     for d in dirs:
         for sql in sorted(d.rglob("*.sql")):
             text = sql.read_text(encoding="utf-8")
-            lowered = text.lower()
+            # Normalise whitespace before matching. A literal substring match
+            # treats `FORCE  ROW LEVEL SECURITY` (aligned with two spaces) or a
+            # statement wrapped across lines as absent, so a compliant migration
+            # would fail -- and, far worse, an author could satisfy the check's
+            # letter while evading it. This HARDENS the check; it does not relax
+            # any requirement below.
+            lowered = " ".join(text.lower().split())
             if "create table" not in lowered:
                 continue
             checked += 1
