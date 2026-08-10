@@ -13,3 +13,9 @@
 # `cryptography`, which provides the asymmetric primitives. Aaroh does not
 # implement JWT parsing or signature verification itself (ADR-0063).
 PyJWT[crypto]>=2.8
+
+# HTTP boundary (ADR-0064). Ratified by ADR-0058 as Aaroh's backend framework.
+# The ASGI server is a runtime dependency because the application must actually
+# be served; it is not imported by application code.
+fastapi>=0.115
+uvicorn>=0.30
