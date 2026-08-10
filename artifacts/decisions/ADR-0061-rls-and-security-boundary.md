@@ -1,12 +1,12 @@
 ---
 id: ART-ADR-0061
 title: "Row-Level Security and the Data Access Boundary"
-version: 1.0
+version: 1.1
 status: accepted
 owner: Rexy-5097
 created: 2026-08-10
 modified: 2026-08-10
-related_adr: ADR-0058
+related_adr: ADR-0062
 related_standard: standards/privacy.md
 related_checklist: QG-011
 related_workflow: master.md
@@ -16,6 +16,8 @@ related_agent: security-reviewer
 # Architecture Decision Record: ADR-0061
 
 > **Status:** Accepted | **Date:** 2026-08-10 | **Decider:** Rexy-5097
+>
+> **v1.1** — adds the sanctioned database access path (I-12) and development/production project separation (I-11), and ratifies migration tooling via `ADR-0062`. Amended before merge in response to review of v1.0.
 
 ## Context
 
@@ -168,7 +170,33 @@ Users may read their own audit trail. That is a transparency feature consistent 
 
 Migrations are versioned, reviewed as security changes, and forward-only in any deployed environment. A migration that creates a user-owned table without enabling and forcing RLS and defining policies is rejected by CI (**I-5**).
 
-Migration tooling is not ratified by this ADR. The requirements above are tool-independent; the choice accompanies the first schema decision.
+Migration tooling is ratified separately by **`ADR-0062`**, which mandates raw SQL for all RLS-sensitive DDL precisely so the I-5 check remains reliable. The requirements above are tool-independent; ADR-0062 makes them mechanically enforceable.
+
+### 12. The sanctioned database access path
+
+There is exactly one place in Aaroh where a database connection may be created: the **`db/` package inside the backend** (for example `backend/app/db/`). It owns the engine, the connection pool, and the request-scoped session dependency that opens the transaction and applies `SET LOCAL`.
+
+Every other module — routes, services, domain logic, workers — obtains a session from that dependency and never constructs its own. A module that imports a driver or calls a connection factory directly has, by construction, bypassed the transaction wrapper and therefore invariant I-3, because identity is established by the dependency and nowhere else.
+
+This is invariant **I-12**, and unlike a convention it is checked statically (`check_db_access_boundary`). Two exemptions, both narrow: migration tooling, and the test suite — the RLS tests must open raw connections as different roles in order to prove isolation, which is the entire point of them.
+
+### 13. Development and production are separate Supabase projects
+
+Aaroh runs **at least two entirely separate Supabase projects**: `aaroh-dev` and `aaroh-prod`. They are distinct projects with distinct URLs, distinct JWT signing keys, distinct `service_role` keys, and distinct storage buckets. This is not a naming convention inside one project — a single project with a "dev" schema shares one `service_role` key, so any development-time leak is a production breach.
+
+| Rule | Requirement |
+|------|-------------|
+| Separation | Development and production are separate Supabase projects. No credential is valid in both. |
+| Production credentials | Never present on a developer workstation, never in `.env` files, never in the repository. They exist only in the deployment platform's secret store. |
+| Development credentials | May exist locally in a gitignored `.env`. Still never committed — `.gitignore` blocks `.env*`, and CI's secret scan is the backstop. |
+| `service_role` keys | Both projects' keys live only in CI/deploy secret stores. The development key is not a lesser secret; it is a full bypass for whatever data the development project holds. |
+| Production data in development | Prohibited. Development uses synthetic or self-authored data. Copying production resumes into a development project would place real personal data in the weaker environment — the exact inversion of this control. |
+| Rotation | On any suspected exposure, on maintainer change, and on a scheduled basis at least every 90 days. Rotation is a documented procedure, not an improvised response. |
+| Key inventory | Every credential that exists is recorded — which project, where stored, last rotated. A key nobody remembers issuing cannot be rotated. |
+
+A third `aaroh-staging` project is warranted before public launch, when a change needs verification against production-like data volumes without touching production. It is not warranted at Stage 0 and is deliberately deferred.
+
+This is invariant **I-11**. Its absence is what turns a routine development mistake into a reportable breach, and it costs nothing to establish now versus untangling shared credentials later.
 
 ## Security Invariants
 
@@ -186,6 +214,8 @@ Violation of any of these is a CRITICAL finding. None may be waived to unblock a
 | **I-8** | The AI gateway holds no database credential. |
 | **I-9** | Audit records are append-only and contain no High-class data values. |
 | **I-10** | Disabling RLS is never an acceptable remedy to an incident or a failing test. |
+| **I-11** | Development and production are separate Supabase projects. No credential is valid in both, production credentials never exist on a developer workstation, and production data is never copied into development. |
+| **I-12** | Database connections and clients are created only inside the sanctioned `db/` access layer. Exemptions: migration tooling and the test suite. |
 
 ## Data-Flow Boundary
 
@@ -242,6 +272,8 @@ Violation of any of these is a CRITICAL finding. None may be waived to unblock a
 | T10 | Developer adds a query outside the transaction wrapper | Session dependency is the only sanctioned access path; I-3 test | Moderate — depends on the dependency being the only route |
 | T11 | Backup or PITR snapshot exposure | Managed by Supabase; provider-dependent | Accepted; provider trust is inherent to ADR-0058 |
 | T12 | Insider or maintainer access | Audit logging (I-9), least privilege | Accepted at solo-maintainer scale; stated honestly |
+| T13 | Development-environment leak reaches production data | Separate projects, no shared credential, no production data in development (I-11) | Low. Bounds T2: a development key leak now costs synthetic data, not real resumes |
+| T14 | A module opens its own connection, bypassing the identity wrapper | Sanctioned `db/` layer is the only connection site (I-12), checked statically | Low — this closes the gap that made I-3 depend on discipline |
 
 ## Failure Modes
 
@@ -290,13 +322,16 @@ RLS is testable without Supabase: the semantics are PostgreSQL's. CI runs a Post
 ### Tier A — AgentOS governance (CI, no database)
 
 16. `VS-027`: a migration creating a user-owned table without RLS enabled, forced, and policied fails governance.
-17. A source scan finds no `service_role` reference in request-handling code.
+17. A source scan finds no `service_role` reference in request-handling code (I-2).
+18. No module outside the sanctioned `db/` layer imports a driver or calls a connection factory (I-12). Migrations and tests are exempt.
+19. Migration files are raw SQL; a Python migration that generates DDL fails, because it would defeat check 16 (`ADR-0062`).
+20. The AI gateway imports no database client (I-8).
 
 The Tier A/Tier B split is the one established in the architecture review: AgentOS governance validates that the rules exist; the application suite validates that the code obeys them.
 
 ## Operational Implications
 
-- **Two credentials, separately scoped.** An application role (no `BYPASSRLS`) in runtime; a migration credential in CI/deploy secrets only. They never appear in the same environment.
+- **Two credentials, separately scoped, per environment.** An application role (no `BYPASSRLS`) in runtime; a migration credential in CI/deploy secrets only. They never appear in the same environment — and `aaroh-dev` and `aaroh-prod` never share any of them (I-11).
 - **Every request opens a transaction.** A fixed cost paid once in a session dependency, but it means no long-running request may hold a connection while awaiting an external call — relevant to LLM-calling routes, which must complete their database work before invoking the gateway.
 - **Connection mode.** Session mode (port 5432) for the MVP: simpler, and it avoids transaction-pooler interactions with prepared statements. Transaction pooling is revisited when connection count actually justifies it, not before.
 - **Local development** uses a managed Supabase development project (`ADR-0058`), so RLS and JWT behaviour under test match production. A local Postgres container would not.

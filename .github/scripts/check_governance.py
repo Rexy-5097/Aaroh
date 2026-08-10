@@ -84,6 +84,31 @@ DB_CLIENT_MODULES = {
     "sqlalchemy", "psycopg", "psycopg2", "asyncpg", "sqlite3", "supabase", "alembic",
 }
 
+# I-12: the ONLY place a database connection may be created is the sanctioned
+# `db/` access layer, which owns the engine and the request-scoped session
+# dependency that opens the transaction and applies SET LOCAL. A module that
+# builds its own connection has bypassed that wrapper, and therefore I-3.
+DB_LAYER_PATH_MARKERS = ("/db/", "/database/")
+
+# Narrow, deliberate exemptions. Tests must open raw connections as different
+# roles -- proving isolation is the entire point of the RLS suite.
+DB_BOUNDARY_EXEMPT_MARKERS = (
+    "/tests/", "/test_", "conftest.py", "migrations/", "/alembic/", "/scripts/",
+)
+
+# Connection factories, checked by call name in addition to imports.
+DB_CONNECTION_FACTORIES = {
+    "create_engine", "create_async_engine", "async_sessionmaker", "sessionmaker",
+    "connect", "create_pool", "create_client", "AsyncConnectionPool", "ConnectionPool",
+}
+
+# ADR-0062 (I-13): RLS-sensitive DDL is raw SQL. Python that generates DDL in the
+# migrations tree would blind check_rls_migrations, so its presence is a failure.
+PY_DDL_MARKERS = (
+    "op.create_table", "op.add_column", "op.drop_table", "op.execute",
+    "from alembic", "import alembic",
+)
+
 
 class Result:
     def __init__(self) -> None:
@@ -316,6 +341,20 @@ def check_rls_migrations(r: Result) -> None:
 
     violations: list[str] = []
     checked = 0
+
+    # ADR-0062 I-13. This check reads SQL. If migrations become Python that
+    # generates DDL, the scan below would find no CREATE TABLE and report
+    # compliance while unprotected tables ship. Detect that condition rather
+    # than being silently blinded by it.
+    for d in dirs:
+        for py in d.rglob("*.py"):
+            text = py.read_text(encoding="utf-8")
+            if any(marker in text for marker in PY_DDL_MARKERS):
+                violations.append(
+                    f"{rel(py)} generates DDL from Python — ADR-0062 mandates raw SQL for "
+                    "RLS-sensitive DDL, because generated DDL cannot be verified by this check"
+                )
+
     for d in dirs:
         for sql in sorted(d.rglob("*.sql")):
             text = sql.read_text(encoding="utf-8")
@@ -417,6 +456,56 @@ def check_gateway_has_no_db(r: Result) -> None:
         r.ok("AI gateway has no DB credential (ADR-0061 I-8)", f"{len(gateway_files)} file(s) clean")
 
 
+# ── Check 9: connections only in the sanctioned db/ layer (ADR-0061 I-12) ─────
+def check_db_access_boundary(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed(
+            "DB access boundary (ADR-0061 I-12)",
+            "no application source tree yet; activates when backend/ or packages/ appears",
+        )
+        return
+
+    violations: list[str] = []
+    scanned = 0
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue
+            if any(m in path_str for m in DB_LAYER_PATH_MARKERS):
+                continue  # this IS the sanctioned layer
+            scanned += 1
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+
+            for module, lineno in imported_modules(tree):
+                if matches(module, DB_CLIENT_MODULES):
+                    violations.append(
+                        f"{rel(src)}:{lineno} imports database client '{module}' outside the "
+                        "sanctioned db/ layer — sessions must come from the request-scoped "
+                        "dependency that applies SET LOCAL (I-3)"
+                    )
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    name = dotted_name(node.func)
+                    leaf = name.split(".")[-1]
+                    if leaf in DB_CONNECTION_FACTORIES and name != "connect":
+                        violations.append(
+                            f"{rel(src)}:{node.lineno} calls {name}() outside the sanctioned "
+                            "db/ layer — only that layer may create connections (I-12)"
+                        )
+
+    if violations:
+        for v in violations:
+            r.bad("DB access boundary (ADR-0061 I-12)", v)
+    else:
+        r.ok("DB access boundary (ADR-0061 I-12)", f"{scanned} file(s) outside db/ clean")
+
+
 def main() -> int:
     r = Result()
     print("Aaroh governance checks")
@@ -430,6 +519,7 @@ def main() -> int:
     check_rls_migrations(r)
     check_service_role_isolation(r)
     check_gateway_has_no_db(r)
+    check_db_access_boundary(r)
 
     for line in r.lines:
         print(line)
