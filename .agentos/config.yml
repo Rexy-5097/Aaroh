@@ -79,6 +79,12 @@ trigger_map:
   architecture: chief-architect
   security: security-reviewer
   testing: qa-reviewer
+  # ── Aaroh project additions (additive; no generic mapping above was changed) ──
+  # Registered per standards/README.md "Adding a New Standard" step 5.
+  llm_integration: llm-reviewer
+  prompt: llm-reviewer
+  decision_engine: chief-architect
+  privacy: security-reviewer
 
 # Tool integration settings
 tools:

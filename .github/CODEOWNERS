@@ -19,3 +19,25 @@ VERSION                 @Rexy-5097
 # Repository configuration
 .github/                @Rexy-5097
 .gitignore              @Rexy-5097
+
+# ── Architecture and governance — highest review sensitivity ──────────────────
+# Changes here alter what the engineering process itself enforces.
+artifacts/decisions/    @Rexy-5097
+context/                @Rexy-5097
+PROJECT_CONFIG.yaml     @Rexy-5097
+profiles/               @Rexy-5097
+standards/              @Rexy-5097
+agents/                 @Rexy-5097
+checklists/             @Rexy-5097
+
+# CI is the enforcement layer behind QG-009..QG-011. A change that weakens a
+# check is indistinguishable from removing the guarantee it represents.
+.github/workflows/      @Rexy-5097
+.github/scripts/        @Rexy-5097
+
+# ── Vendored AgentOS framework — should not change ────────────────────────────
+# Aaroh adapts AgentOS additively (new files selected by profiles/aaroh.yaml).
+# A diff under these paths means the framework itself is being forked.
+runtime/                @Rexy-5097
+validation/             @Rexy-5097
+tools/                  @Rexy-5097

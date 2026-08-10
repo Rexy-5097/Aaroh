@@ -1,0 +1,64 @@
+name: Security
+
+# Aaroh stores resumes, contact details and employment history. Secret hygiene
+# is a Stage 0 requirement, not later hardening.
+#
+# This workflow is a BACKSTOP. The primary controls are GitHub-native and must
+# be enabled in repository settings:
+#   - Secret scanning + push protection (free for public repos)
+#   - Dependabot alerts and security updates
+# See docs/ENGINEERING_WORKFLOW.md.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan sees what was actually committed on the
+          # branch, not only the tip.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Scan tracked files for credentials
+        run: python .github/scripts/scan_secrets.py
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Audit Python dependencies
+        # Only the AgentOS toolchain exists today. This job is deliberately
+        # in place before application dependencies arrive, so the first one
+        # added is audited on the PR that adds it.
+        run: |
+          python -m pip install --disable-pip-version-check pip-audit
+          # Console script, not `python -m pip-audit`: the distribution is
+          # named pip-audit but the importable module is pip_audit.
+          pip-audit -r tools/requirements.txt --strict

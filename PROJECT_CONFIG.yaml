@@ -1,10 +1,13 @@
 project:
   name: Aaroh
   version: 0.0.0
-  profile: ai_project
-  framework: UNDECIDED
+  profile: aaroh
+  # Ratified by ADR-0058. Aaroh is polyglot: TypeScript clients over a Python
+  # backend that holds the canonical decision engine (ADR-0059).
+  framework: FastAPI + Expo/React Native + Next.js
   languages:
-  - UNDECIDED
+  - Python
+  - TypeScript
   owner: Rexy-5097
   # PROJECT_CONFIG.example.yaml marks `goals` as Required, but
   # bootstrap_project.py omits it when writing this file. Restored by hand.
@@ -15,18 +18,30 @@ project:
   deadline: UNDECIDED
   status: INITIALIZED
 enabled_features:
+  # Mirrors profiles/aaroh.yaml. See that file for why each generic AgentOS
+  # standard/agent/gate is included or deliberately excluded.
   standards:
   - standards/code_quality.md
-  - standards/ai_ml.md
   - standards/testing.md
+  - standards/security.md
+  - standards/privacy.md
+  - standards/decision_engine.md
+  - standards/llm_integration.md
+  - standards/api_design.md
   agents:
-  - agents/ai-reviewer.md
   - agents/orchestrator.md
+  - agents/chief-architect.md
+  - agents/security-reviewer.md
+  - agents/llm-reviewer.md
+  - agents/qa-reviewer.md
+  - agents/docs-reviewer.md
   quality_gates:
   - QG-001
   - QG-002
   - QG-003
-  - QG-004
+  - QG-005
+  - QG-009
+  - QG-010
+  - QG-011
   metrics:
-  - metrics/benchmarks.md
   - metrics/quality.md
