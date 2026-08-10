@@ -109,6 +109,17 @@ DB_CONNECTION_FACTORIES = {
     "connect", "create_pool", "create_client", "AsyncConnectionPool", "ConnectionPool",
 }
 
+# ── ADR-0063: the authentication boundary ─────────────────────────────────────
+# I-16: the verification allow-list is asymmetric-only. HS256 or "none" here
+# would re-open algorithm confusion.
+FORBIDDEN_JWT_ALGORITHMS = {"HS256", "HS384", "HS512", "none", "None"}
+
+# I-19 / I-23: only the auth package may construct an identity, and production
+# must never import the test factory.
+IDENTITY_TYPE = "VerifiedIdentity"
+AUTH_PACKAGE_MARKERS = ("/app/auth/", "/auth/")
+AUTH_TESTING_MODULES = ("app.auth.testing", "auth.testing")
+
 # ADR-0062 (I-13): RLS-sensitive DDL is raw SQL. Python that generates DDL in the
 # migrations tree would blind check_rls_migrations, so its presence is a failure.
 PY_DDL_MARKERS = (
@@ -519,6 +530,176 @@ def check_db_access_boundary(r: Result) -> None:
         r.ok("DB access boundary (ADR-0061 I-12)", f"{scanned} file(s) outside db/ clean")
 
 
+# ── Check 10: signature verification is never disabled (ADR-0063 I-15) ────────
+def _literal_false(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value is False
+
+
+def check_jwt_verification_not_disabled(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("JWT verification enabled (ADR-0063 I-15)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    scanned = 0
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue
+            scanned += 1
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                # options={"verify_signature": False} and friends
+                if isinstance(node, ast.Dict):
+                    for key, value in zip(node.keys, node.values):
+                        if (
+                            isinstance(key, ast.Constant)
+                            and isinstance(key.value, str)
+                            and key.value.startswith("verify_")
+                            and _literal_false(value)
+                        ):
+                            violations.append(
+                                f"{rel(src)}:{node.lineno} disables {key.value!r} -- "
+                                "cryptographic verification may never be turned off"
+                            )
+                # verify_signature=False as a keyword argument
+                if isinstance(node, ast.Call):
+                    for kw in node.keywords:
+                        if kw.arg and kw.arg.startswith("verify_") and _literal_false(kw.value):
+                            violations.append(
+                                f"{rel(src)}:{node.lineno} passes {kw.arg}=False"
+                            )
+                    # decoding without verifying at all
+                    name = dotted_name(node.func)
+                    if name.endswith("get_unverified_claims") or name.endswith("decode_complete"):
+                        violations.append(
+                            f"{rel(src)}:{node.lineno} calls {name}() -- decodes without verifying"
+                        )
+
+    if violations:
+        for v in violations:
+            r.bad("JWT verification enabled (ADR-0063 I-15)", v)
+    else:
+        r.ok("JWT verification enabled (ADR-0063 I-15)", f"{scanned} file(s) clean")
+
+
+# ── Check 11: algorithm allow-list stays asymmetric (ADR-0063 I-16) ───────────
+def check_jwt_algorithm_allow_list(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("JWT algorithm allow-list (ADR-0063 I-16)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                # any list/tuple/set of algorithm strings containing a symmetric one
+                if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                    values = {
+                        e.value for e in node.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    }
+                    bad = values & FORBIDDEN_JWT_ALGORITHMS
+                    # only flag collections that are plainly algorithm lists
+                    if bad and (values & {"ES256", "RS256", "ES384", "RS384"} or "alg" in src.read_text(encoding="utf-8")[:400]):
+                        violations.append(
+                            f"{rel(src)}:{node.lineno} algorithm list contains {sorted(bad)} -- "
+                            "symmetric algorithms re-open algorithm confusion"
+                        )
+
+    if violations:
+        for v in violations:
+            r.bad("JWT algorithm allow-list (ADR-0063 I-16)", v)
+    else:
+        r.ok("JWT algorithm allow-list (ADR-0063 I-16)", "asymmetric only")
+
+
+# ── Check 12: identity construction is confined to auth (ADR-0063 I-19) ───────
+def check_identity_construction(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("VerifiedIdentity construction (ADR-0063 I-19)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in AUTH_PACKAGE_MARKERS):
+                continue  # the sanctioned package
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue  # tests obtain identities from the sanctioned factory
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and dotted_name(node.func).endswith(IDENTITY_TYPE):
+                    violations.append(
+                        f"{rel(src)}:{node.lineno} constructs {IDENTITY_TYPE} outside the "
+                        "authentication package -- identities must come from verification"
+                    )
+
+    if violations:
+        for v in violations:
+            r.bad("VerifiedIdentity construction (ADR-0063 I-19)", v)
+    else:
+        r.ok("VerifiedIdentity construction (ADR-0063 I-19)", "confined to the auth package")
+
+
+# ── Check 13: production never imports the test factory (ADR-0063 I-23) ───────
+def check_auth_testing_not_imported_by_production(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("auth.testing containment (ADR-0063 I-23)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue  # the test suite is its only permitted consumer
+            if path_str.endswith("/app/auth/testing.py"):
+                continue  # the module itself
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for module, lineno in imported_modules(tree):
+                if module in AUTH_TESTING_MODULES or module.endswith(".auth.testing"):
+                    violations.append(
+                        f"{rel(src)}:{lineno} imports {module} -- the test identity factory "
+                        "hands out identities without verification and must never ship"
+                    )
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith("auth"):
+                    for alias in node.names:
+                        if alias.name == "testing":
+                            violations.append(
+                                f"{rel(src)}:{node.lineno} imports the test identity factory"
+                            )
+
+    if violations:
+        for v in violations:
+            r.bad("auth.testing containment (ADR-0063 I-23)", v)
+    else:
+        r.ok("auth.testing containment (ADR-0063 I-23)", "not imported by production code")
+
+
 def main() -> int:
     r = Result()
     print("Aaroh governance checks")
@@ -533,6 +714,10 @@ def main() -> int:
     check_service_role_isolation(r)
     check_gateway_has_no_db(r)
     check_db_access_boundary(r)
+    check_jwt_verification_not_disabled(r)
+    check_jwt_algorithm_allow_list(r)
+    check_identity_construction(r)
+    check_auth_testing_not_imported_by_production(r)
 
     for line in r.lines:
         print(line)
