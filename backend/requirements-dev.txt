@@ -18,3 +18,6 @@
 psycopg[binary]>=3.2
 psycopg-pool>=3.2
 pytest>=8.0
+
+# Starlette's TestClient requires httpx to drive the ASGI app in-process.
+httpx>=0.27

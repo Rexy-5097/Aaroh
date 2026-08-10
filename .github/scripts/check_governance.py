@@ -120,6 +120,22 @@ IDENTITY_TYPE = "VerifiedIdentity"
 AUTH_PACKAGE_MARKERS = ("/app/auth/", "/auth/")
 AUTH_TESTING_MODULES = ("app.auth.testing", "auth.testing")
 
+# ── ADR-0064: the HTTP authentication boundary ────────────────────────────────
+# I-26: only the auth package parses or verifies a JWT. A convenience decode in
+# a route is a second trust path, and the wrong one wins because it is easier.
+JWT_PARSING_CALLS = {
+    "decode", "get_unverified_header", "get_unverified_claims", "decode_complete",
+}
+JWT_MODULES = {"jwt", "jose", "python_jose", "authlib"}
+
+# I-27: the Authorization header and bearer tokens never reach a log.
+LOGGING_CALLS = {"debug", "info", "warning", "warn", "error", "exception", "critical", "log", "print"}
+TOKEN_WORDS = ("authorization", "bearer", "token", "jwt", "credential")
+
+# I-25: a handler that reaches the database must have taken an identity.
+IDENTITY_ANNOTATION = "VerifiedIdentity"
+DB_ENTRY_CALL = "request_transaction"
+
 # ADR-0062 (I-13): RLS-sensitive DDL is raw SQL. Python that generates DDL in the
 # migrations tree would blind check_rls_migrations, so its presence is a failure.
 PY_DDL_MARKERS = (
@@ -700,6 +716,158 @@ def check_auth_testing_not_imported_by_production(r: Result) -> None:
         r.ok("auth.testing containment (ADR-0063 I-23)", "not imported by production code")
 
 
+# ── Check 14: no second JWT verification path (ADR-0064 I-26) ─────────────────
+def check_no_second_jwt_parser(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("single JWT parser (ADR-0064 I-26)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in AUTH_PACKAGE_MARKERS):
+                continue  # the sanctioned verifier
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue  # tests forge tokens deliberately
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for module, lineno in imported_modules(tree):
+                if module.split(".")[0] in JWT_MODULES:
+                    violations.append(
+                        f"{rel(src)}:{lineno} imports JWT library {module!r} outside the auth "
+                        "package -- a second verification path is how the weaker one wins"
+                    )
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    name = dotted_name(node.func)
+                    root_name, _, leaf = name.rpartition(".")
+                    if leaf in JWT_PARSING_CALLS and root_name.split(".")[0] in JWT_MODULES:
+                        violations.append(f"{rel(src)}:{node.lineno} calls {name}()")
+
+    if violations:
+        for v in violations:
+            r.bad("single JWT parser (ADR-0064 I-26)", v)
+    else:
+        r.ok("single JWT parser (ADR-0064 I-26)", "verification confined to the auth package")
+
+
+# ── Check 15: tokens and Authorization headers are never logged (I-27) ────────
+def check_no_token_logging(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("no token logging (ADR-0064 I-27)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if dotted_name(node.func).rpartition(".")[2] not in LOGGING_CALLS:
+                    continue
+                # Any argument naming or containing a token-ish identifier.
+                for arg in list(node.args) + [k.value for k in node.keywords]:
+                    rendered = ast.dump(arg).lower()
+                    if any(w in rendered for w in TOKEN_WORDS):
+                        violations.append(
+                            f"{rel(src)}:{node.lineno} logs a value referencing a token or "
+                            "the Authorization header"
+                        )
+                        break
+
+    if violations:
+        for v in violations:
+            r.bad("no token logging (ADR-0064 I-27)", v)
+    else:
+        r.ok("no token logging (ADR-0064 I-27)", "no token or header reaches a log call")
+
+
+_NESTED = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _own_body_nodes(func: ast.AST):
+    """Yield nodes belonging to `func` itself, not to functions nested inside it.
+
+    A nested definition is neither yielded nor descended into: it is a separate
+    function with its own signature, and blaming an enclosing factory for its
+    callee's database access produced a false positive on create_app().
+    """
+    stack = [n for n in getattr(func, "body", []) if not isinstance(n, _NESTED)]
+    while stack:
+        node = stack.pop()
+        yield node
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _NESTED):
+                continue
+            stack.append(child)
+
+
+# ── Check 16: database-touching handlers take an identity (I-25) ──────────────
+def check_protected_routes_declare_identity(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("routes declare identity (ADR-0064 I-25)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    checked = 0
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue
+            if "/db/" in path_str:
+                continue  # the session layer defines request_transaction
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                # Only THIS function's own body. ast.walk descends into nested
+                # definitions, which would blame an enclosing factory for a call
+                # made by the handler it defines -- the handler that does take an
+                # identity. Found by this check firing on create_app().
+                uses_db = any(
+                    isinstance(c, ast.Call)
+                    and dotted_name(c.func).rpartition(".")[2] == DB_ENTRY_CALL
+                    for c in _own_body_nodes(node)
+                )
+                if not uses_db:
+                    continue
+                checked += 1
+                args = node.args.args + node.args.kwonlyargs
+                has_identity = any(
+                    a.annotation is not None
+                    and IDENTITY_ANNOTATION in ast.dump(a.annotation)
+                    for a in args
+                )
+                if not has_identity:
+                    violations.append(
+                        f"{rel(src)}:{node.lineno} {node.name}() reaches the database without "
+                        f"taking a {IDENTITY_ANNOTATION} -- an unauthenticated data path"
+                    )
+
+    if violations:
+        for v in violations:
+            r.bad("routes declare identity (ADR-0064 I-25)", v)
+    else:
+        r.ok("routes declare identity (ADR-0064 I-25)", f"{checked} db-touching handler(s) compliant")
+
+
 def main() -> int:
     r = Result()
     print("Aaroh governance checks")
@@ -718,6 +886,9 @@ def main() -> int:
     check_jwt_algorithm_allow_list(r)
     check_identity_construction(r)
     check_auth_testing_not_imported_by_production(r)
+    check_no_second_jwt_parser(r)
+    check_no_token_logging(r)
+    check_protected_routes_declare_identity(r)
 
     for line in r.lines:
         print(line)
