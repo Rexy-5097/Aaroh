@@ -11,4 +11,4 @@
 #
 # Install:  python3 -m pip install -r tools/requirements.txt
 
-PyYAML>=6.0
+PyYAML>=6.0.3
