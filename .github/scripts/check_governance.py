@@ -74,10 +74,12 @@ SEARCH_ROOTS = ["backend", "packages", "apps", "engine"]
 # Where migrations will live. Update if Stage 0 chooses a different layout.
 MIGRATION_DIRS = ["supabase/migrations", "backend/migrations", "migrations", "db/migrations"]
 
-# I-2: service_role must never appear in request-serving code. Migration and
-# deploy tooling is exempt; everything else is a defect.
+# I-2: service_role must never appear in request-serving code. ADR-0061 permits
+# it for exactly two purposes -- schema migrations and human-initiated
+# break-glass -- so migration tooling is the only exemption here. Break-glass is
+# a documented human procedure, not committed application code.
 SERVICE_ROLE_TOKENS = ("service_role", "SERVICE_ROLE", "SUPABASE_SERVICE_KEY")
-SERVICE_ROLE_EXEMPT_MARKERS = ("migrations/", "scripts/deploy", "tools/", ".github/")
+SERVICE_ROLE_EXEMPT_MARKERS = ("migrations/",)
 
 # I-8: the AI gateway holds no database credential.
 DB_CLIENT_MODULES = {
@@ -90,10 +92,15 @@ DB_CLIENT_MODULES = {
 # builds its own connection has bypassed that wrapper, and therefore I-3.
 DB_LAYER_PATH_MARKERS = ("/db/", "/database/")
 
-# Narrow, deliberate exemptions. Tests must open raw connections as different
-# roles -- proving isolation is the entire point of the RLS suite.
+# EXACTLY the two exemptions ADR-0061 I-12 grants: migration tooling, and the
+# test suite (whose RLS tests must open raw connections as different roles --
+# proving isolation is the entire point of them).
+#
+# Do not widen this tuple without amending I-12 first. A `/scripts/` entry was
+# removed here after review: it silently exempted backend/scripts/*.py, making
+# the implementation more permissive than the decision it enforces.
 DB_BOUNDARY_EXEMPT_MARKERS = (
-    "/tests/", "/test_", "conftest.py", "migrations/", "/alembic/", "/scripts/",
+    "/tests/", "/test_", "conftest.py", "migrations/",
 )
 
 # Connection factories, checked by call name in addition to imports.
