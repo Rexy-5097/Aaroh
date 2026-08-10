@@ -82,6 +82,7 @@
 | [ADR-0062](../artifacts/decisions/ADR-0062-migration-strategy.md) | Raw SQL migrations via Supabase CLI; forward-only; RLS DDL never generated | Accepted | 2026-08-10 | High |
 | [ADR-0063](../artifacts/decisions/ADR-0063-jwt-verification-and-authentication-boundary.md) | Asymmetric JWT verification via JWKS; VerifiedIdentity; claim minimisation | Accepted | 2026-08-10 | High |
 | [ADR-0064](../artifacts/decisions/ADR-0064-http-authentication-boundary.md) | HTTP boundary: dependency-injected identity; uniform 401; no second trust path | Accepted | 2026-08-10 | High |
+| [ADR-0065](../artifacts/decisions/ADR-0065-first-product-slice-preparation-goal.md) | First product slice: preparation goal as the engine constraints input | Accepted | 2026-08-10 | High |
 
 ---
 

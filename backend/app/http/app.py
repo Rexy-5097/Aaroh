@@ -17,6 +17,7 @@ from app.auth.verifier import JwtVerifier
 from app.db.session import request_transaction
 
 from .dependencies import require_identity
+from .routes import preparation_goal_router
 from .errors import (
     PROBLEM_MEDIA_TYPE,
     WWW_AUTHENTICATE,
@@ -83,5 +84,7 @@ def create_app(verifier: JwtVerifier, pool=None) -> FastAPI:
             with request_transaction(pool, identity) as conn:
                 visible = conn.execute("SELECT count(*) FROM public.profiles").fetchone()[0]
         return {"subject": str(identity.subject), "visible_rows": visible}
+
+    app.include_router(preparation_goal_router)
 
     return app
