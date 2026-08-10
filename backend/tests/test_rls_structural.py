@@ -10,15 +10,30 @@ test for that table.
 
 from __future__ import annotations
 
-# Tables in `public` that are deliberately not user-owned may be listed here.
-# Adding a name to this set is a security decision and must be justified in the
-# pull request that adds it -- it removes the table from every assertion below.
-NON_USER_OWNED_TABLES: set[str] = set()
-
 WRITE_COMMANDS = {"INSERT", "UPDATE", "ALL"}
+
+# There is deliberately NO exemption list in this module.
+#
+# An earlier draft carried an empty `NON_USER_OWNED_TABLES` set so a future
+# non-user-owned table could be excluded. It was removed on review: an unused,
+# unrestricted escape hatch in a security test is a liability. Adding a name to
+# such a set silently deletes a table from every assertion below, and an empty
+# set invites exactly that the first time a deadline arrives.
+#
+# Aaroh's current architecture has no non-user-owned table, so the mechanism is
+# not required. Every ordinary table in `public` is asserted against every
+# property here.
+#
+# If a genuinely non-user-owned table is ever needed -- a task catalogue, engine
+# weight metadata -- these tests will fail loudly until the exemption is designed
+# deliberately: an explicit allow-list keyed to an ADR, with the exempted table
+# still asserted for the properties that do apply to it (RLS enabled, anon
+# denied). That is a security decision requiring its own governance record, not
+# a blank cheque written in advance.
 
 
 def _app_tables(admin_conn) -> list[str]:
+    """Every ordinary table in `public`. No exemptions, by design."""
     rows = admin_conn.execute(
         """
         SELECT c.relname
@@ -28,7 +43,7 @@ def _app_tables(admin_conn) -> list[str]:
         ORDER BY c.relname
         """
     ).fetchall()
-    return [r[0] for r in rows if r[0] not in NON_USER_OWNED_TABLES]
+    return [r[0] for r in rows]
 
 
 def test_there_is_at_least_one_table_to_check(admin_conn):

@@ -54,6 +54,15 @@ jobs:
         # violation. See the script header.
         run: python .github/scripts/check_governance.py
 
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Regression tests for the governance checks themselves
+        # A security check that silently stops working is worse than no check,
+        # because it is trusted. These pin both directions of the I-5 matcher.
+        # No database required.
+        run: python -m pytest .github/scripts/tests -q
+
   rls-tests:
     name: RLS isolation tests
     runs-on: ubuntu-latest

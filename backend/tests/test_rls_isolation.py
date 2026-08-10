@@ -7,12 +7,14 @@ cannot reach anyone else's.
 
 from __future__ import annotations
 
+import json
 import uuid
+from contextlib import contextmanager
 
 import psycopg
 import pytest
 
-from app.db.session import UnverifiedClaimsError, request_transaction
+from app.db.session import UnverifiedClaimsError, build_pool, request_transaction
 from conftest import APP_DSN, USER_A, USER_B, claims_for
 
 
@@ -119,27 +121,121 @@ def test_user_cannot_reassign_own_row_to_another(pool):
 # ── The invariant that matters most: I-3, identity must not leak ─────────────
 
 def test_identity_does_not_leak_between_pooled_transactions(pool):
-    """Two sequential transactions on the SAME physical connection.
+    """Identity established in one transaction must not survive into the next
+    use of the SAME physical connection.
 
-    The pool is capped at one connection, so this reuse is guaranteed rather
-    than incidental. If the wrapper used plain SET instead of SET LOCAL, the
-    second transaction would still be acting as user A.
+    Why phase 2 exists
+    ------------------
+    An earlier version of this test ran two *wrapped* transactions back to back
+    and asserted each saw its own rows. That version passed even when SET LOCAL
+    was mutated to a persistent SET, because the second transaction set its own
+    claims and simply overwrote the leaked ones. The test's name promised a
+    property its assertions never exercised.
+
+    The leak is only observable from a transaction that establishes NO identity
+    of its own. Phase 2 is that observation point, and it is what makes this
+    test mutation-sensitive. `test_persistent_set_is_observable_as_a_leak`
+    proves these exact assertions fail under the mutation.
+
+    Physical connection reuse is asserted via pg_backend_pid() rather than
+    assumed from the pool being capped at one. If the fixture ever stops
+    reusing the connection, this test fails loudly instead of passing vacuously.
     """
     _seed(pool, USER_A, "alice")
     _seed(pool, USER_B, "bob")
 
+    # Phase 1 -- user A, through the sanctioned wrapper.
     with request_transaction(pool, claims_for(USER_A)) as conn:
-        first_uid = conn.execute("SELECT auth.uid()").fetchone()[0]
-        first_rows = conn.execute("SELECT user_id FROM public.profiles").fetchall()
+        pid_a = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+        assert conn.execute("SELECT auth.uid()").fetchone()[0] == USER_A
+        assert conn.execute("SELECT user_id FROM public.profiles").fetchall() == [(USER_A,)]
 
+    # Phase 2 -- same connection, NO identity established. Nothing here sets
+    # claims or a role, so nothing may be inherited from phase 1.
+    with pool.connection() as conn:
+        pid_unwrapped = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+        leaked_claims = conn.execute(
+            "SELECT current_setting('request.jwt.claims', true)"
+        ).fetchone()[0]
+        leaked_role = conn.execute("SELECT current_user").fetchone()[0]
+
+    assert pid_unwrapped == pid_a, (
+        "the pool did not reuse the physical connection; this test cannot prove "
+        "anything about leakage between reuses"
+    )
+    assert leaked_claims in (None, ""), (
+        f"user A's claims survived onto a reused connection: {leaked_claims!r}"
+    )
+    assert leaked_role == "aaroh_app", (
+        f"user A's role survived onto a reused connection: {leaked_role}"
+    )
+
+    # Phase 3 -- user B, same connection, through the wrapper.
     with request_transaction(pool, claims_for(USER_B)) as conn:
-        second_uid = conn.execute("SELECT auth.uid()").fetchone()[0]
-        second_rows = conn.execute("SELECT user_id FROM public.profiles").fetchall()
+        pid_b = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+        assert pid_b == pid_a, "connection not reused for phase 3"
+        assert conn.execute("SELECT auth.uid()").fetchone()[0] == USER_B
+        assert conn.execute("SELECT user_id FROM public.profiles").fetchall() == [(USER_B,)]
 
-    assert first_uid == USER_A
-    assert second_uid == USER_B
-    assert first_rows == [(USER_A,)]
-    assert second_rows == [(USER_B,)]
+
+@contextmanager
+def _leaky_transaction(pool, claims: dict):
+    """A deliberately WRONG variant of request_transaction.
+
+    Uses session-scoped settings -- set_config(..., false) and a bare SET ROLE --
+    instead of transaction-local ones. This is exactly the mutation ADR-0061 I-3
+    forbids. It exists only so the test below can demonstrate, permanently and
+    in CI, that the identity-leak test detects it, rather than that detection
+    resting on a mutation somebody ran by hand once.
+    """
+    with pool.connection() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT set_config('request.jwt.claims', %s, false)",
+                    (json.dumps(claims),),
+                )
+                cur.execute("SET ROLE authenticated")
+            yield conn
+
+
+def test_persistent_set_is_observable_as_a_leak():
+    """Targeted mutation proof for the identity-leak test above.
+
+    Runs the leaky variant, then makes the SAME observations the real test
+    makes. Under the mutation those observations show a leak -- which is
+    precisely why the real test fails when the implementation regresses.
+
+    Uses a private pool so the poisoned session state cannot escape into any
+    other test.
+    """
+    leaky_pool = build_pool(APP_DSN, min_size=1, max_size=1)
+    try:
+        with _leaky_transaction(leaky_pool, claims_for(USER_A)) as conn:
+            pid_a = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+
+        with leaky_pool.connection() as conn:
+            pid_after = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+            leaked_claims = conn.execute(
+                "SELECT current_setting('request.jwt.claims', true)"
+            ).fetchone()[0]
+            leaked_role = conn.execute("SELECT current_user").fetchone()[0]
+
+        assert pid_after == pid_a, "connection not reused; mutation proof inconclusive"
+
+        # The real test asserts `leaked_claims in (None, "")` and
+        # `leaked_role == "aaroh_app"`. Both are violated here, so the real test
+        # would fail against this implementation.
+        assert leaked_claims not in (None, ""), (
+            "persistent SET did not leak claims; this proof no longer demonstrates "
+            "what the identity-leak test guards against"
+        )
+        assert str(USER_A) in leaked_claims
+        assert leaked_role == "authenticated", (
+            "persistent SET ROLE did not leak the role; proof inconclusive"
+        )
+    finally:
+        leaky_pool.close()
 
 
 def test_identity_is_cleared_after_the_transaction(pool):
