@@ -59,4 +59,6 @@ jobs:
         # added is audited on the PR that adds it.
         run: |
           python -m pip install --disable-pip-version-check pip-audit
-          python -m pip-audit -r tools/requirements.txt --strict
+          # Console script, not `python -m pip-audit`: the distribution is
+          # named pip-audit but the importable module is pip_audit.
+          pip-audit -r tools/requirements.txt --strict
