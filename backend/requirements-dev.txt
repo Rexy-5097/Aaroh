@@ -1,0 +1,13 @@
+# Stage 0 vertical slice 1 -- RLS test harness only.
+#
+# This is NOT Aaroh's application dependency manifest. There is no application:
+# no web framework, no ORM, no client SDK. ADR-0058 leaves Python dependency
+# tooling deliberately unlocked; this file exists so CI can run the RLS suite.
+#
+# psycopg is used directly rather than through an ORM because this slice tests
+# PostgreSQL's own row-level security semantics. An ORM would sit between the
+# test and the behaviour under test.
+
+psycopg[binary]>=3.2
+psycopg-pool>=3.2
+pytest>=8.0

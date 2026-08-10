@@ -27,21 +27,21 @@ Environment reconstructed on macOS from the GitHub source of truth and validated
 - `[x]` Ratify ADR-0057 (licence), ADR-0058 (stack), ADR-0059 (engine), ADR-0060 (weights)
 - `[x]` Create `profiles/aaroh.yaml` and Aaroh-specific standards, reviewer, and gates
 - `[x]` Ratify ADR-0061 (RLS and the data access boundary) and ADR-0062 (migration strategy)
-- `[ ]` **Next approved work — Stage 0 vertical slice 1: the RLS test harness** (see below)
+- `[~]` **Stage 0 vertical slice 1 — RLS test harness: implemented, awaiting review**
 
 ---
 
-## Next approved work
+## Stage 0 vertical slice 1 — in review
 
-**The RLS test harness plus one trivial owned table — before any product feature.**
+Implemented on `stage0/vertical-slice-01-rls`. **Not merged.**
 
-Scope: the `auth` shim (`auth.uid()`, `authenticated` / `anon` roles), a PostgreSQL service container in CI, the session dependency in `backend/app/db/`, one raw SQL migration creating a minimal owned table with full RLS, and the structural tests from ADR-0061 Tier B.
+The first Aaroh application code: the CI auth shim, a pinned PostgreSQL service, the sanctioned access layer at `backend/app/db/`, the first raw SQL migration (`public.profiles`), and the Tier B isolation and structural test suites.
 
-Rationale: the structural assertions — every table has RLS enabled *and forced*, both `USING` and `WITH CHECK` present, app role lacks `BYPASSRLS` — cover every future table automatically, and are far easier to write against an empty schema than retrofitted around twenty. It also proves the hardest mechanic (`SET LOCAL` identity that does not leak across pooled connections) while nothing else is in flight.
+What it proves: **Aaroh can establish user identity at the database boundary, and PostgreSQL itself prevents cross-user access.** Verified by mutation — removing `FORCE`, removing `WITH CHECK`, changing `SET LOCAL` to `SET`, and granting `BYPASSRLS` each make the suite fail.
 
-Authentication is **not** first: building it before the isolation harness means building on an untested boundary.
+Six governance checks moved from ARMED to active: I-2, I-5, I-8, I-12, engine purity, and excluded infrastructure.
 
-**This work requires explicit approval before it begins.**
+Still absent by design: Supabase Auth, JWT verification, API routes, clients, AI, decision engine, and any schema beyond one table.
 
 ---
 
