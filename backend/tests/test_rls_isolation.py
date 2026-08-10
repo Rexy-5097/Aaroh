@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import psycopg
 import pytest
 
-from app.db.session import UnverifiedClaimsError, build_pool, request_transaction
+from app.db.session import UnverifiedIdentityError, build_pool, request_transaction
 from conftest import APP_DSN, USER_A, USER_B, claims_for
 
 
@@ -193,7 +193,7 @@ def _leaky_transaction(pool, claims: dict):
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT set_config('request.jwt.claims', %s, false)",
-                    (json.dumps(claims),),
+                    (json.dumps(claims.database_claims()),),
                 )
                 cur.execute("SET ROLE authenticated")
             yield conn
@@ -293,13 +293,30 @@ def test_anon_role_has_no_access(pool):
                 conn.execute("SELECT * FROM public.profiles")
 
 
-# ── Claims that are not usable as an identity are refused ────────────────────
+# ── Only a VerifiedIdentity may establish a database identity ────────────────
+#
+# Slice 1 accepted a dict here and validated its `sub` -- a convention. ADR-0063
+# replaces that with a type the authentication package alone can construct, so
+# these cases now assert the stronger property: an unverified value of ANY shape
+# is refused before a single statement runs.
 
 @pytest.mark.parametrize(
-    "claims",
-    [{}, {"sub": ""}, {"sub": None}, {"sub": "not-a-uuid"}, {"role": "authenticated"}],
+    "unverified",
+    [
+        {},
+        {"sub": ""},
+        {"sub": None},
+        {"sub": "not-a-uuid"},
+        {"role": "authenticated"},
+        # A dict that looks exactly like a verified identity is still refused:
+        # plausibility is not verification.
+        {"sub": str(USER_A), "role": "authenticated"},
+        None,
+        "a-bare-string",
+        42,
+    ],
 )
-def test_unusable_claims_are_refused_before_any_query(pool, claims):
-    with pytest.raises(UnverifiedClaimsError):
-        with request_transaction(pool, claims):
-            pytest.fail("a session was opened for claims carrying no usable subject")
+def test_unverified_values_are_refused_before_any_query(pool, unverified):
+    with pytest.raises(UnverifiedIdentityError):
+        with request_transaction(pool, unverified):
+            pytest.fail("a session was opened for an unverified value")

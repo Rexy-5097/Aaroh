@@ -16,6 +16,7 @@ import uuid
 import psycopg
 import pytest
 
+from app.auth.testing import identity_for
 from app.db.session import build_pool
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -37,9 +38,19 @@ USER_A = uuid.UUID("11111111-1111-4111-8111-111111111111")
 USER_B = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 
-def claims_for(user_id: uuid.UUID) -> dict:
-    """Claims as they would look AFTER signature verification (ADR-0061 I-4)."""
-    return {"sub": str(user_id), "role": "authenticated"}
+def claims_for(user_id: uuid.UUID):
+    """A VerifiedIdentity for RLS tests, via the sanctioned factory.
+
+    ADR-0063 section 4a: these tests exercise the DATABASE boundary, so they use
+    the factory rather than minting and verifying a JWT for every row-isolation
+    assertion. The factory routes through the same validation the verifier uses,
+    so it cannot produce an identity the verifier would reject.
+
+    The complete authentication chain is proven separately and mandatorily in
+    test_auth_end_to_end.py -- the factory stands in for that path, so that path
+    must be tested for real somewhere.
+    """
+    return identity_for(user_id)
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -39,10 +39,11 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from uuid import UUID
 
 from psycopg import Connection
 from psycopg_pool import ConnectionPool
+
+from app.auth.identity import VerifiedIdentity
 
 # The database role every request-scoped statement executes as. It is not the
 # login role: the login role holds no privileges of its own (NOINHERIT), so an
@@ -50,13 +51,13 @@ from psycopg_pool import ConnectionPool
 REQUEST_ROLE = "authenticated"
 
 
-class UnverifiedClaimsError(RuntimeError):
-    """Raised when claims are unusable as a database identity.
+class UnverifiedIdentityError(TypeError):
+    """Raised when something other than a VerifiedIdentity reaches this layer.
 
-    The caller is responsible for having already verified the token's
-    signature, expiry, issuer and audience (ADR-0061 I-4). This class is the
-    last line of defence, not the verification step: it only checks that the
-    claims carry a subject of the right shape.
+    Slice 1 accepted a plain dict here and relied on the caller having verified
+    it -- a convention, not a control. ADR-0063 replaces that with a type only
+    the authentication package can produce, so "the caller must remember to
+    verify" becomes "the database identity requires a verified identity object".
     """
 
 
@@ -69,27 +70,28 @@ def build_pool(dsn: str, *, min_size: int = 1, max_size: int = 4) -> ConnectionP
     return ConnectionPool(dsn, min_size=min_size, max_size=max_size, open=True)
 
 
-def _require_subject(claims: dict) -> str:
-    """Return the subject from already-verified claims, or refuse."""
-    subject = claims.get("sub")
-    if subject is None or subject == "":
-        raise UnverifiedClaimsError("claims carry no 'sub'; refusing to open a session")
-    try:
-        UUID(str(subject))
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise UnverifiedClaimsError("claims 'sub' is not a UUID") from exc
-    return str(subject)
-
-
 @contextmanager
-def request_transaction(pool: ConnectionPool, claims: dict) -> Iterator[Connection]:
+def request_transaction(
+    pool: ConnectionPool, identity: VerifiedIdentity
+) -> Iterator[Connection]:
     """Yield a connection inside a transaction bound to the caller's identity.
 
-    `claims` MUST already be cryptographically verified. Passing unverified
-    claims here would make row-level security trust whatever the client
-    asserted, turning the strongest control in the system into the weakest.
+    `identity` must be a VerifiedIdentity, which only the authentication package
+    can construct (ADR-0063 I-19). A dict is refused: accepting one would make
+    row-level security trust whatever the client asserted, turning the strongest
+    control in the system into the weakest.
+
+    Only `sub` and `role` reach PostgreSQL (ADR-0063 I-20). A real Supabase
+    token also carries email, phone, user_metadata and app_metadata -- High-class
+    data under standards/privacy.md, which would otherwise surface in
+    pg_stat_activity, query logs, and error output.
     """
-    _require_subject(claims)
+    if not isinstance(identity, VerifiedIdentity):
+        raise UnverifiedIdentityError(
+            "request_transaction requires a VerifiedIdentity from the "
+            "authentication package; refusing to establish a database identity "
+            "from an unverified value"
+        )
 
     with pool.connection() as conn:
         with conn.transaction():
@@ -98,7 +100,7 @@ def request_transaction(pool: ConnectionPool, claims: dict) -> Iterator[Connecti
                 # lower-privileged role for the rest of the transaction.
                 cur.execute(
                     "SELECT set_config('request.jwt.claims', %s, true)",
-                    (json.dumps(claims),),
+                    (json.dumps(identity.database_claims()),),
                 )
                 # Role names cannot be parameterised. REQUEST_ROLE is a module
                 # constant and never derived from input.

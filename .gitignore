@@ -135,3 +135,10 @@ temp/
 
 # ─── Aaroh Specific ────────────────────────────────────────────────────────
 # Add project-specific ignores below this line
+
+# Supabase CLI local state (ADR-0061 I-11: dev/prod credential separation).
+# .temp/ holds the linked-project pointer and CLI scratch data. It is machine-
+# local, and future CLI versions may place credential-adjacent material here,
+# so it is excluded rather than reviewed file-by-file.
+supabase/.temp/
+supabase/.branches/

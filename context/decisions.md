@@ -80,6 +80,7 @@
 | [ADR-0060](../artifacts/decisions/ADR-0060-engine-versioning-and-weights.md) | Weights-as-data, versioned traces, golden-file tests | Accepted | 2026-08-10 | High |
 | [ADR-0061](../artifacts/decisions/ADR-0061-rls-and-security-boundary.md) | RLS enforced under the caller's identity; service_role never in request path | Accepted | 2026-08-10 | High |
 | [ADR-0062](../artifacts/decisions/ADR-0062-migration-strategy.md) | Raw SQL migrations via Supabase CLI; forward-only; RLS DDL never generated | Accepted | 2026-08-10 | High |
+| [ADR-0063](../artifacts/decisions/ADR-0063-jwt-verification-and-authentication-boundary.md) | Asymmetric JWT verification via JWKS; VerifiedIdentity; claim minimisation | Accepted | 2026-08-10 | High |
 
 ---
 
