@@ -1,12 +1,19 @@
-# Stage 0 vertical slice 1 -- RLS test harness only.
+# Aaroh backend DEVELOPMENT and TEST dependencies.
 #
-# This is NOT Aaroh's application dependency manifest. There is no application:
-# no web framework, no ORM, no client SDK. ADR-0058 leaves Python dependency
-# tooling deliberately unlocked; this file exists so CI can run the RLS suite.
+# Runtime dependencies live in requirements.txt (ADR-0063 section 6) and are
+# included below by reference. This file adds only what tests and local
+# development need on top of them.
 #
-# psycopg is used directly rather than through an ORM because this slice tests
-# PostgreSQL's own row-level security semantics. An ORM would sit between the
-# test and the behaviour under test.
+# ADR-0058 leaves Python dependency tooling deliberately unlocked, so
+# constraints are floors rather than pins until a lockfile decision is made.
+#
+# psycopg is used directly rather than through an ORM because the RLS suite
+# tests PostgreSQL's own row-level security semantics. An ORM would sit between
+# the test and the behaviour under test.
+
+# Runtime dependencies are declared in requirements.txt and included here by
+# reference, never duplicated -- two copies of a version constraint drift.
+-r requirements.txt
 
 psycopg[binary]>=3.2
 psycopg-pool>=3.2

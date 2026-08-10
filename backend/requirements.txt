@@ -1,0 +1,15 @@
+# Aaroh backend RUNTIME dependencies.
+#
+# Distinct from requirements-dev.txt on purpose (ADR-0063 section 6): the dev
+# manifest states in its own header that it is not an application manifest, and
+# PyJWT ships in production. Folding a runtime dependency into a dev-only file
+# would misrepresent what Aaroh actually runs, and would leave it outside any
+# audit that scopes itself to runtime.
+#
+# ADR-0058 leaves Python packaging deliberately unlocked, so constraints are
+# floors rather than pins until a lockfile decision is made.
+
+# JWT verification. ES256/RS256 via JWKS; the [crypto] extra pulls in
+# `cryptography`, which provides the asymmetric primitives. Aaroh does not
+# implement JWT parsing or signature verification itself (ADR-0063).
+PyJWT[crypto]>=2.8

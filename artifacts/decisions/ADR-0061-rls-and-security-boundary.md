@@ -1,7 +1,7 @@
 ---
 id: ART-ADR-0061
 title: "Row-Level Security and the Data Access Boundary"
-version: 1.1
+version: 1.2
 status: accepted
 owner: Rexy-5097
 created: 2026-08-10
@@ -18,6 +18,8 @@ related_agent: security-reviewer
 > **Status:** Accepted | **Date:** 2026-08-10 | **Decider:** Rexy-5097
 >
 > **v1.1** — adds the sanctioned database access path (I-12) and development/production project separation (I-11), and ratifies migration tooling via `ADR-0062`. Amended before merge in response to review of v1.0.
+>
+> **v1.2** — adds one cross-reference in section 1 clarifying that the `request.jwt.claims` payload is minimised per `ADR-0063` section 5. No security decision changed.
 
 ## Context
 
@@ -69,6 +71,8 @@ COMMIT;
 `SET LOCAL` is transaction-scoped. It cannot survive into the next request on a pooled connection — **provided every request runs inside a transaction**. That proviso is invariant **I-3** and is tested, because plain `SET`, or a query issued outside a transaction, would leak one user's identity to the next request on the same connection. That is the most dangerous bug this design can produce, and it is why the transaction boundary is an invariant rather than a convention.
 
 The claims JSON is built **only from claims FastAPI has already cryptographically verified**. Raw client-supplied tokens are never interpolated into the GUC.
+
+> **Cross-reference (added with ADR-0063).** "Validated claims JSON" is an upper bound, not an instruction to forward every claim. `ADR-0063` section 5 narrows the payload to the minimum this boundary requires — `sub` and `role` — because a real Supabase token also carries `email`, `phone`, `user_metadata`, and `app_metadata`, which `standards/privacy.md` classifies **High** and which would otherwise surface in `pg_stat_activity` and query logs. The security decision above is unchanged; only the payload is minimised.
 
 ### 2. Which operations may use `service_role`
 

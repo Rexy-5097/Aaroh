@@ -54,11 +54,15 @@ jobs:
           python-version: '3.12'
 
       - name: Audit Python dependencies
-        # Only the AgentOS toolchain exists today. This job is deliberately
-        # in place before application dependencies arrive, so the first one
-        # added is audited on the PR that adds it.
+        # Every manifest is audited, runtime included. A runtime dependency that
+        # is not covered here ships unaudited (ADR-0063 section 6).
+        #   tools/requirements.txt        vendored AgentOS toolchain
+        #   backend/requirements.txt      RUNTIME - what Aaroh actually ships
+        #   backend/requirements-dev.txt  dev/test, includes runtime by reference
         run: |
           python -m pip install --disable-pip-version-check pip-audit
           # Console script, not `python -m pip-audit`: the distribution is
           # named pip-audit but the importable module is pip_audit.
           pip-audit -r tools/requirements.txt --strict
+          pip-audit -r backend/requirements.txt --strict
+          pip-audit -r backend/requirements-dev.txt --strict

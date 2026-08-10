@@ -1,7 +1,7 @@
 ---
 id: ART-ADR-0063
 title: "JWT Verification and the Authentication Boundary"
-version: 1.0
+version: 1.1
 status: accepted
 owner: Rexy-5097
 created: 2026-08-10
@@ -16,6 +16,8 @@ related_agent: security-reviewer
 # Architecture Decision Record: ADR-0063
 
 > **Status:** Accepted | **Date:** 2026-08-10 | **Decider:** Rexy-5097
+>
+> **v1.1** — adds the JWKS SSRF boundary (section 3a, I-22), per-process cache/rate-limit scope (section 3b), a future-bound on `iat`, and the sanctioned test-identity factory with its production-import prohibition (section 4a, I-23). Amended before implementation in response to review of v1.0.
 
 ## Context
 
@@ -91,14 +93,16 @@ Every check below is mandatory. Failure of any one rejects the token.
 | signature | Must verify against a JWKS key selected by `kid` |
 | `exp` | Required. Expired tokens rejected, with 30 s leeway |
 | `nbf` | If present, must not be in the future, same 30 s leeway |
-| `iat` | Required |
+| `iat` | Required, and **future-bounded**: `iat <= now + 30 s`. A token issued further in the future than the skew allowance is rejected |
 | `iss` | Required. **Exact string equality** with the configured issuer — never prefix, suffix, or substring matching, which would accept `https://evil.example/https://<ref>.supabase.co/auth/v1` |
 | `aud` | Required. Must equal `"authenticated"`, **or** be a list containing it. Both forms are handled; only the string form was observed live |
 | `sub` | Required, non-empty, and a **valid UUID**. It becomes `auth.uid()`, which is typed `uuid` in PostgreSQL — a non-UUID subject would fail at the database boundary rather than the authentication boundary, which is the wrong place to find out |
 | `role` | Must equal `"authenticated"`. `anon` and `service_role` are rejected |
 | `is_anonymous` | If present and `true`, rejected |
 
-**Clock skew: 30 seconds.** Small enough that it does not meaningfully extend a token's life (0.8% of the observed 3600 s lifetime), large enough to absorb ordinary drift between Supabase's clock and Aaroh's host. A larger allowance would be a silent extension of every token's validity.
+**Clock skew: 30 seconds**, applied to `exp`, `nbf`, and `iat` alike. Small enough that it does not meaningfully extend a token's life (0.8% of the observed 3600 s lifetime), large enough to absorb ordinary drift between Supabase's clock and Aaroh's host. A larger allowance would be a silent extension of every token's validity.
+
+All temporal comparisons use **UTC**. A future-dated `iat` is rejected rather than ignored: without that bound, a token could be minted now and remain unused until its `iat` window opens, and an unbounded `iat` also defeats any later attempt to reason about token age.
 
 **Rejecting `service_role` is not redundant.** ADR-0061 I-2 keeps the key out of request-serving processes, but that does not stop a client *presenting* a `service_role` token it obtained elsewhere. Such a token is validly signed by the same project. Its `role` claim is the distinguishing signal, and the verifier is where it must be caught. Note also that `service_role` and `anon` tokens carry `iss: "supabase"` rather than the project issuer, so exact issuer matching rejects them independently — two controls, deliberately.
 
@@ -120,6 +124,41 @@ Every check below is mandatory. Failure of any one rejects the token.
 
 **Availability trade-off, stated plainly.** Fail-closed means a JWKS outage lasting longer than the cache TTL makes Aaroh reject all requests. That is the correct trade for a product holding resumes: failing open would accept unverified tokens, which is unbounded compromise rather than bounded downtime.
 
+#### 3a. Where the JWKS URL comes from — the SSRF boundary
+
+The verifier fetches a URL. If that URL could ever be influenced by a request, Aaroh becomes an SSRF vector, and — far worse — an attacker who controls the key set controls who Aaroh believes the caller is. This section draws the line explicitly.
+
+**Trusted static configuration** — supplied at deploy time, fixed for the process lifetime, never derived from a request:
+
+- the **issuer**, e.g. `https://<project-ref>.supabase.co/auth/v1`.
+
+**Attacker-controlled runtime data** — never permitted to influence which URL is fetched:
+
+- anything in the request: headers, path, query, body;
+- **the token itself, including its `iss` and `kid` claims.**
+
+The rule that matters most: **the token's `iss` claim is compared against the configured issuer, never used to locate the key set.** Selecting a JWKS URL from a claim inside an unverified token is the textbook path from "we validate the issuer" to "the attacker chooses the signing key".
+
+Concretely:
+
+| Rule | Requirement |
+|------|-------------|
+| Issuer scheme | Must be `https`. An `http` issuer is a configuration error and refuses to start |
+| JWKS URL | **Derived deterministically** as `<issuer>/.well-known/jwks.json`. It is not independently configurable, so there is no separate value to get wrong or to poison |
+| Host check | The JWKS URL's host must **exactly equal** the configured issuer's host — byte equality, not a suffix test |
+| Redirects | A redirect to any host other than the configured issuer's host is **not followed**; the fetch fails and the token is rejected |
+| Violation | Fail closed |
+
+**Why the host check is exact equality, not a `*.supabase.co` suffix test.** A suffix test would accept `evil.supabase.co`, and Supabase project subdomains are attacker-obtainable — anyone can create a project. `endswith(".supabase.co")` would therefore admit a key set an attacker fully controls, while looking like a tightened control. Exact equality against the configured host is the real boundary; the `.supabase.co` shape is incidental to it, not the check.
+
+#### 3b. Scope of the cache and the rate limit
+
+The JWKS cache and the unknown-`kid` refresh limiter are **per-process, in-memory**. With *N* worker processes there are *N* caches and the effective bound is *N* refreshes per 60 s, not one.
+
+This is **accepted residual risk at MVP scale** and is stated so nobody later assumes a guarantee that was never built. No shared coordination — no Redis, no external store — is introduced for this slice; `ADR-0058` excludes that infrastructure until a concrete requirement exists, and a handful of processes does not constitute one.
+
+If a globally coordinated limit is ever required, it must be decided explicitly in its own ADR. It must not be assumed to already exist.
+
 ### 4. `VerifiedIdentity` — an honest boundary
 
 `request_transaction` stops accepting `dict` and accepts a `VerifiedIdentity` carrying only:
@@ -137,6 +176,27 @@ Every check below is mandatory. Failure of any one rejects the token.
 | Code review | Intent | — |
 
 The honest claim is: **direct construction fails loudly at runtime, and a bypass cannot reach `main` without deleting a governed CI check.** Not: the type is unforgeable. Overclaiming a boundary is worse than a documented one, because it stops people looking.
+
+#### 4a. How tests obtain an identity
+
+Slice 1's RLS suite has 18 `claims_for()` call sites and 17 `request_transaction()` call sites, all passing plain dictionaries. Changing the signature breaks every one, and those tests cannot construct `VerifiedIdentity` directly either — I-19 forbids it outside the auth package.
+
+Three options were considered:
+
+1. **A sanctioned test-only factory inside the auth package.** **Accepted.**
+2. Every RLS test mints a locally-signed JWT and runs it through the real verifier. Rejected as the *default*: it couples every row-isolation test to key fixtures and JWT machinery, slowing a suite that currently runs in 0.13 s and making RLS failures harder to localise — a signature bug and a policy bug would look alike. **Retained for the end-to-end tests below.**
+3. Widen the governance exemption so tests may construct the type freely. **Rejected.** That is the `NON_USER_OWNED_TABLES` mistake repeated: a blanket exemption inside a security boundary, which is exactly what slice 1's review removed.
+
+**Decision.** `backend/app/auth/testing.py` provides a factory returning the *same* `VerifiedIdentity` type that `request_transaction` consumes. It lives inside the auth package, so I-19 holds unchanged — the construction boundary is not widened, and no test-shaped exemption is added to the governance check.
+
+The factory creates a new hole of its own — anything importing it obtains identities freely — so it is closed by a matching rule:
+
+**Production code must never import `auth.testing`** (invariant **I-23**), enforced by an AST governance check. Only the test suite may import it. The module carries a header saying so.
+
+**Two obligations follow, and both are requirements rather than suggestions:**
+
+- **At least two end-to-end tests** must exercise the complete chain with locally generated keys: mint a signed JWT → real verifier → `VerifiedIdentity` → `request_transaction` → `SET LOCAL` → RLS → user-owned rows only. Without these, the factory would let the suite pass while the real path was broken — the factory tests the database boundary, the end-to-end tests prove the boundary it is standing in for.
+- The factory must not be a second, laxer construction path. It performs the same subject validation the verifier performs, so a test cannot manufacture an identity the verifier would have rejected.
 
 ### 5. Claim minimisation — a correction to slice 1
 
@@ -173,6 +233,8 @@ Extends the ADR-0061 set:
 | **I-19** | `VerifiedIdentity` is constructed only inside the authentication package. |
 | **I-20** | Only `sub` and `role` are propagated into `request.jwt.claims`. No other claim reaches PostgreSQL. |
 | **I-21** | The authentication package holds no database credential and opens no connection. |
+| **I-22** | The JWKS URL is derived deterministically from the trusted configured issuer, which must be `https`. Its host must exactly equal the issuer's host. No request data — including the token's own `iss` or `kid` — may influence which URL is fetched, and a redirect to another host is not followed. |
+| **I-23** | Production code never imports `auth.testing`. Only the test suite may. |
 
 ## Data-Flow Boundary
 
@@ -224,6 +286,10 @@ Extends the ADR-0061 set:
 | J13 | `VerifiedIdentity` forged by application code | Sentinel + AST governance (I-19) | **Moderate and explicitly stated** — see §4 |
 | J14 | Verification bypassed by disabling signature checking | I-15, AST governance check | Low |
 | J15 | Stolen valid token | Out of scope for this ADR — bounded by the 3600 s lifetime; revocation and refresh handling are a later decision | **Accepted** |
+| J16 | **SSRF / key-set substitution** — attacker steers the JWKS fetch to a host they control, then signs their own tokens | JWKS URL derived from trusted static config only; exact host equality; token `iss`/`kid` never used to locate keys; cross-host redirects not followed (I-22) | Low |
+| J17 | `auth.testing` reaches production, handing out identities without verification | Production import forbidden and AST-enforced (I-23); factory applies the same subject validation as the verifier | Low |
+| J18 | Future-dated `iat` used to pre-mint a token for later | `iat <= now + 30 s`, UTC | Low |
+| J19 | Unknown-`kid` flood across *N* worker processes | Per-process limiter bounds each process; effective rate is *N* × 1/60 s | **Accepted at MVP scale — explicitly not a global guarantee** |
 
 ## Failure Modes
 
@@ -241,11 +307,15 @@ Extends the ADR-0061 set:
 
 Tests use **locally generated ES256 and RS256 keypairs** and a local JWKS fixture. No production key material, and no live provider dependency — the suite must be deterministic and offline.
 
-**Verification unit tests:** valid ES256 · valid RS256 · invalid signature · expired · future `nbf` · wrong issuer · wrong audience · audience as array · missing `sub` · non-UUID `sub` · malformed token · `alg: none` · HS256 rejected · **algorithm confusion** (HMAC signed with the public key) · unknown `kid` · key rotation · JWKS unavailable → fail closed · rate-limited refresh → rejected · `service_role` rejected · `anon` rejected · anonymous user rejected.
+The case lists below are **minimum invariant coverage, not targets**. If the implementation reveals further meaningful security cases, they are added. Every invariant must be defended by at least one named test.
 
-**Boundary tests:** direct `VerifiedIdentity` construction fails · a plain dict is refused by `request_transaction` · only `sub` and `role` appear in `request.jwt.claims` · no `email`/`phone`/metadata reaches PostgreSQL.
+**Verification unit tests:** valid ES256 · valid RS256 · invalid signature · expired · missing `exp` · future `nbf` · **valid `iat`** · **`iat` exactly at the skew boundary** · **`iat` beyond the skew → rejected** · malformed temporal claims · wrong issuer · wrong audience · audience as array · missing `sub` · non-UUID `sub` · malformed token · `alg: none` · HS256 rejected · **algorithm confusion** (HMAC signed with the public key) · unknown `kid` · key rotation · JWKS unavailable → fail closed · rate-limited refresh → rejected · stale-cache behaviour · `service_role` rejected · `anon` rejected · anonymous user rejected.
 
-**Integration:** a locally minted valid token → `VerifiedIdentity` → `request_transaction` → `auth.uid()` → RLS returns only that user's rows, and a second identity cannot see the first's. This must run against real PostgreSQL, reusing slice 1's harness.
+**JWKS URL boundary tests (I-22):** `http` issuer refused · JWKS URL derived from the issuer rather than configured separately · a token whose `iss` names a different host does not cause a fetch to that host · host differing from the configured issuer refused · **`evil.supabase.co` refused despite the matching suffix** · cross-host redirect not followed.
+
+**Boundary tests:** direct `VerifiedIdentity` construction fails · a plain dict is refused by `request_transaction` · only `sub` and `role` appear in `request.jwt.claims` · no `email`/`phone`/`user_metadata`/`app_metadata` reaches PostgreSQL · the auth package opens no database connection · `auth.testing` produces the same type and applies the same subject validation.
+
+**End-to-end (at least two, mandatory per §4a):** a locally minted valid token → real verifier → `VerifiedIdentity` → `request_transaction` → `SET LOCAL` → `auth.uid()` → RLS returns only that user's rows; and a second identity cannot see the first's. Against real PostgreSQL, reusing slice 1's harness.
 
 **Mutation testing is mandatory**, following slice 1's discipline. Each mutation must be caught by a *named* test, and the specific test recorded: disabled signature verification · removed `exp` · removed `iss` · removed `aud` · `HS256` added to the allow-list · `alg: none` permitted · `service_role` accepted · `anon` accepted · UUID validation removed · unknown-`kid` refresh removed · full claims propagated to the database. A mutation that survives means the property is unprotected regardless of how many tests pass.
 
@@ -256,7 +326,9 @@ AST-based where practical; string matching only where semantics do not permit be
 - **I-15** — no `verify_signature: False`, and no unverified decode, in production code.
 - **I-16** — no algorithm list containing `HS256` or `none`.
 - **I-19** — `VerifiedIdentity` constructed only inside the auth package.
-- **I-21** — the auth package imports no database driver.
+- **I-21** — the auth package imports no database driver. *(Already enforced today: `backend/app/auth/` falls inside the existing I-12 `check_db_access_boundary` scope, is not the `db/` layer, and is not exempt.)*
+- **I-23** — production code does not import `auth.testing`.
+- **ADR-0061 I-2** — no `service_role` in request-serving code. *(Already enforced by the existing check.)*
 
 Each check is tested in both directions, with a violating fixture that must fail and a compliant fixture that must pass. Exemptions are not created speculatively.
 
