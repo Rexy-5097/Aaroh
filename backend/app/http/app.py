@@ -17,7 +17,7 @@ from app.auth.verifier import JwtVerifier
 from app.db.session import request_transaction
 
 from .dependencies import require_identity
-from .routes import dsa_activity_router, preparation_goal_router
+from .routes import dsa_activity_router, next_problem_router, preparation_goal_router
 from .errors import (
     PROBLEM_MEDIA_TYPE,
     WWW_AUTHENTICATE,
@@ -87,5 +87,6 @@ def create_app(verifier: JwtVerifier, pool=None) -> FastAPI:
 
     app.include_router(preparation_goal_router)
     app.include_router(dsa_activity_router)
+    app.include_router(next_problem_router)
 
     return app

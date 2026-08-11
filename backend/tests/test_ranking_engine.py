@@ -25,7 +25,7 @@ from app.domain.catalogue import InvalidCatalogueItem, validate_item
 from app.domain.foundational import FOUNDATIONAL_ORDER, foundational_position
 from app.domain.goals import validate_goal
 from app.domain.snapshot import snapshot_from_activities
-from catalogue_fixture import CATALOGUE
+from app.domain.catalogue_v1 import V1_CATALOGUE as CATALOGUE
 
 SUBJECT = UUID("11111111-1111-4111-8111-111111111111")
 NOON = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
