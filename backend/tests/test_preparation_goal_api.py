@@ -10,7 +10,7 @@ either the data returned or the data withheld.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +21,22 @@ from app.auth.verifier import JwtVerifier
 from app.http.app import create_app
 from auth_fixtures import ISSUER, KeyPair, jwks_document, valid_claims
 from conftest import USER_A, USER_B
+
+
+def utc_today():
+    """The same clock the endpoint uses.
+
+    `app/http/routes/preparation_goal.py` reads `datetime.now(timezone.utc).date()`,
+    so a test that builds a deadline from the LOCAL date is comparing two different
+    days whenever the machine is not on UTC. These tests did exactly that, and were
+    wall-clock flaky for the hours each day when the local date runs ahead of (or
+    behind) UTC -- for example 00:13 IST is still the previous day in UTC, which
+    made `days_remaining` 91 rather than 90 and let a "today" deadline count as
+    validly in the future.
+
+    CI never saw it: GitHub runners are UTC, so local and UTC always agreed there.
+    """
+    return datetime.now(timezone.utc).date()
 
 GOAL = "/v1/preparation-goal"
 
@@ -50,7 +66,7 @@ def payload(**overrides) -> dict:
     body = {
         "target_role": "Backend SWE",
         "target_company": "Acme",
-        "deadline": (date.today() + timedelta(days=90)).isoformat(),
+        "deadline": (utc_today() + timedelta(days=90)).isoformat(),
         "weekly_hours": 12,
     }
     body.update(overrides)
@@ -182,7 +198,7 @@ def test_a_direct_insert_naming_another_owner_is_refused(pool):
             conn.execute(
                 "INSERT INTO public.preparation_goals "
                 "(user_id, target_role, deadline, weekly_hours) VALUES (%s, %s, %s, %s)",
-                (USER_B, "planted", date.today() + timedelta(days=30), 10),
+                (USER_B, "planted", utc_today() + timedelta(days=30), 10),
             )
 
 
@@ -238,9 +254,9 @@ def test_rejected_token_cannot_reach_the_endpoint(client, key):
         ({"target_role": ""}, "target_role"),
         ({"target_role": "   "}, "target_role"),
         ({"target_role": "x" * 200}, "target_role"),
-        ({"deadline": (date.today() - timedelta(days=1)).isoformat()}, "deadline"),
-        ({"deadline": date.today().isoformat()}, "deadline"),
-        ({"deadline": (date.today() + timedelta(days=5000)).isoformat()}, "deadline"),
+        ({"deadline": (utc_today() - timedelta(days=1)).isoformat()}, "deadline"),
+        ({"deadline": utc_today().isoformat()}, "deadline"),
+        ({"deadline": (utc_today() + timedelta(days=5000)).isoformat()}, "deadline"),
         ({"weekly_hours": 0}, "weekly_hours"),
         ({"weekly_hours": 200}, "weekly_hours"),
     ],

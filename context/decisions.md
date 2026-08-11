@@ -85,6 +85,7 @@
 | [ADR-0065](../artifacts/decisions/ADR-0065-first-product-slice-preparation-goal.md) | First product slice: preparation goal as the engine constraints input | Accepted | 2026-08-10 | High |
 | [ADR-0066](../artifacts/decisions/ADR-0066-dsa-activity-record.md) | DSA activity: problem-level append-only record, manual entry only | Accepted | 2026-08-10 | High |
 | [ADR-0067](../artifacts/decisions/ADR-0067-readiness-snapshot-contract.md) | Readiness snapshot: immutable point-in-time facts; interpretation stays in the engine | Accepted | 2026-08-11 | High |
+| [ADR-0068](../artifacts/decisions/ADR-0068-version-identity-and-immutability.md) | Version identity: immutable human-readable label, SHA-256 byte digest as integrity check; labels never reused | Accepted | 2026-08-12 | High |
 
 ---
 
