@@ -89,6 +89,23 @@ rediscovered.
 
 | E4 | **Score model** | Investigated and **blocked**. *"Readiness gain"* appears exactly twice in the repository (`context/architecture.md`, `ADR-0060`) and is described, never defined. ADR-0060 §Context states outright that *"every coefficient in that calculation is, today, a hypothesis with no supporting evidence"*. Nothing defines how solving one DSA problem changes readiness, and no score scale, range, direction, type or precision exists anywhere. |
 
+**S1 is already settled by existing decisions — no new ADR was needed.** The quantity
+that orders candidate tasks is **not** the Career Readiness Score:
+
+- `ADR-0065` defines the Career Readiness Score as *"a function of DSA state, resume
+  state and constraints"* — three inputs, and **no candidate parameter**. A quantity
+  that takes no candidate cannot order candidates.
+- `context/vision.md` ships them a stage apart: Stage 1 delivers *"transparent score +
+  confidence. **No recommender yet**"*, Stage 2 delivers *"ROI ranking"*. A quantity
+  that exists for a whole stage without any ranking is not the ranking quantity.
+- Nothing anywhere equates the two. `ADR-0060` shows the Career Readiness Score is also
+  weight-driven and engine-computed — shared machinery, not shared identity.
+
+**Consequence: V1 ranking does not require resume state.** `ADR-0067` §9 guarantees a
+snapshot is total and valid with zero history, so the engine has a usable input today.
+This is a derivation from accepted decisions, not a new decision, and it should be
+recorded as a premise in the score-model ADR rather than in an ADR of its own.
+
 Two structural findings from the score-model investigation:
 
 - **The Career Readiness Score cannot be computed in V1.** `ADR-0065` defines it as *"a function of DSA state, resume state and constraints"* — and resume state is deferred, with V1 approved as DSA-only. One of its three inputs does not exist.
