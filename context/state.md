@@ -80,12 +80,17 @@ rediscovered.
 
 | # | Missing decision | Why it blocks |
 |---|-----------------|---------------|
-| E1 | **Version identifier mechanism** | `engine_version`, `weights_version` (ADR-0060) and `vocabulary_version` (ADR-0067) are all named, and no format is decided anywhere. ADR-0060 requires engine and weights to version **independently** and users to be pinned, which neither git tags nor ADR document versions provide. `vocabulary_version` is unimplemented in `StudentSnapshot` for this reason. |
-| E2 | **Output contract** | `RankedResult` is a name with no fields. ADR-0059 says clients receive recommendation, ranking, score, confidence, explanation trace and both versions; no structure is defined. |
-| E3 | **Catalogue contract** | `catalog` is described only as "the candidate tasks". No task identity, fields, time estimate, topic tagging or versioning exists. ADR-0067 §8 requires catalogue topic tags to be drawn from the same `TOPICS` tuple. |
+| ~~E1~~ | ~~Version identifier mechanism~~ | **Partly settled by ADR-0068**: an immutable human-readable label identifies an artifact, with a SHA-256 digest of its exact bytes as an integrity check; labels are never reused. The label *format* is deliberately still open, as are lifecycle, coexistence and per-user pinning. |
+| E2 | **Output contract** | `RankedResult` is a name with no fields. Investigated and **blocked**: it cannot be defined without task identity (E3), score semantics, tie-breaking and confidence semantics. Note ADR-0059's field list sits under a heading titled *Clients* and describes the **API response**, not `rank()`'s return value — the two are currently conflated. |
+| E3 | **Catalogue contract** | Investigated and **blocked at the first question**: nothing in the repository defines what a recommended *task* is. `context/architecture.md` says "career-preparation tasks", `README.md` says "single action" — phrases, not definitions. No task taxonomy, no identity scheme, no example item, no fields. Whether the catalogue is DSA-only or spans domains (resume, mock interviews) is undecided, and that single answer determines identity, fields, topic optionality and difficulty semantics. ADR-0067 §8 fixes only the join: catalogue topic tags must come from the same `TOPICS` tuple. |
 | E4 | **Weights semantics** | ADR-0060 fixes the architectural contract and states explicitly that no weight values are defined by it. Their shape, units and provenance format remain open. |
 | E5 | **Cold-start behaviour** | The requirement is recorded below; the behaviour is not. Default task selection, fallback ranking, minimum evidence and catalogue filtering are all undecided. |
-| E6 | **Tie-breaking and trace completeness** | No rule exists for equal scores, and ADR-0060's trace omits a catalogue version and a retention period — which `standards/privacy.md` requires for every data class. |
+| E6 | **Tie-breaking and trace completeness** | No rule exists for equal scores — and byte-identical output (ADR-0059) makes a deterministic tie-break mandatory, not optional. ADR-0060's trace omits a catalogue version and a retention period, the latter required by `standards/privacy.md` for every data class. |
+
+Two findings from the E2 and E3 investigations that are not blockers but change scope:
+
+- **The decision trace is High-class, and nothing currently says so.** ADR-0060 stores `constraints | deadline, time budget, target role`, and `standards/privacy.md` classes *target role* and *target company* as **High**. ADR-0067 deliberately kept the snapshot uniformly Medium so traces would not be promoted; the constraints half re-introduces High regardless. This pulls in audit logging and minimisation before any external call, and must be settled with the trace.
+- **A task catalogue would be Aaroh's first non-user-owned table.** `backend/tests/test_rls_structural.py` anticipates this explicitly and will fail loudly until an exemption is designed — *"an explicit allow-list keyed to an ADR, with the exempted table still asserted for the properties that do apply"*. The catalogue is therefore a security decision as well as a product one. |
 
 **`rank()` arity is also stated two ways** — three arguments in ADR-0059 §"Conceptual
 contract" and ADR-0065 (which quotes it), four in ADR-0060 §Consequences and
