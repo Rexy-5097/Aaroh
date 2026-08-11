@@ -136,9 +136,48 @@ def test_the_subject_is_carried_and_not_invented():
     assert build(activity(), subject=OTHER).subject == OTHER
 
 
-def test_as_of_is_carried_verbatim():
+def test_as_of_is_carried():
     other_time = NOON - timedelta(days=3)
     assert build(as_of=other_time).as_of == other_time
+
+
+@pytest.mark.parametrize("offset_hours", [5.5, -8, 0, 13])
+def test_as_of_is_normalised_to_utc(offset_hours):
+    """Regression: `_utc(as_of)` once had its return value discarded, so `as_of`
+    kept the CALLER's timezone while every database-derived timestamp was
+    normalised. The two snapshots below compare equal -- aware datetimes compare
+    by instant -- so equality could not detect it. They serialised differently,
+    and a snapshot is serialised into every stored trace (ADR-0060).
+
+    The original normalisation test only covered the timestamps that come out of
+    PostgreSQL, which is exactly why it missed the one field the model is
+    anchored to.
+    """
+    zone = timezone(timedelta(hours=offset_hours))
+    same_instant = NOON.astimezone(zone)
+
+    snapshot = build(as_of=same_instant)
+    assert snapshot.as_of.tzinfo is timezone.utc
+    assert snapshot.as_of.utcoffset() == timedelta(0)
+    assert snapshot.as_of.isoformat() == NOON.isoformat()
+    assert snapshot == build(as_of=NOON), "representation must not affect the snapshot"
+
+
+def test_every_snapshot_timestamp_is_utc():
+    """Sweeps the whole structure rather than naming fields, so a timestamp
+    added later cannot quietly escape normalisation."""
+    zone = timezone(timedelta(hours=5, minutes=30))
+    snapshot = snapshot_from_activities(
+        subject=SUBJECT,
+        as_of=NOON.astimezone(zone),
+        activities=[activity(occurred_at=(NOON - timedelta(days=1)).astimezone(zone),
+                             minutes_spent=10)],
+    )
+    stamps = [snapshot.as_of, snapshot.dsa.first_activity_at, snapshot.dsa.last_activity_at]
+    stamps += [t.last_practised_at for t in snapshot.dsa.topics if t.last_practised_at]
+    assert len(stamps) == 4, "expected as_of, first, last and one topic timestamp"
+    for stamp in stamps:
+        assert stamp.tzinfo is timezone.utc, f"{stamp!r} is not UTC"
 
 
 # ── Temporal semantics (ADR-0067 section 5) ──────────────────────────────────

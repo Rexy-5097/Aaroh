@@ -276,7 +276,7 @@ def snapshot_from_activities(
     every record, so it is not what a student with thousands of activities
     should go through.
     """
-    _utc(as_of, field="as_of")
+    as_of = _utc(as_of, field="as_of")
 
     buckets: dict[str, _Bucket] = {}
     for activity in activities:
@@ -320,7 +320,7 @@ def snapshot_from_aggregates(
     Densification happens here rather than in SQL because it is judgement-free
     structure, and structure is cheaper to test without a database.
     """
-    _utc(as_of, field="as_of")
+    as_of = _utc(as_of, field="as_of")
 
     buckets: dict[str, _Bucket] = {}
     for row in rows:
