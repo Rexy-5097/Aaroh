@@ -136,6 +136,14 @@ TOKEN_WORDS = ("authorization", "bearer", "token", "jwt", "credential")
 IDENTITY_ANNOTATION = "VerifiedIdentity"
 DB_ENTRY_CALL = "request_transaction"
 
+# ── ADR-0065: product request models never choose the owner ───────────────────
+# I-30. The owner comes from the verified identity (ADR-0061 I-4). A request
+# model that declares an owner field is IDOR-by-design: the endpoint invites the
+# client to name whose data it is operating on, and only a WHERE clause or a
+# policy stands between that and a breach.
+OWNER_FIELD_NAMES = {"user_id", "owner_id", "subject", "sub", "account_id", "profile_id"}
+REQUEST_MODEL_BASES = {"BaseModel", "PreparationGoalRequest"}
+
 # ADR-0062 (I-13): RLS-sensitive DDL is raw SQL. Python that generates DDL in the
 # migrations tree would blind check_rls_migrations, so its presence is a failure.
 PY_DDL_MARKERS = (
@@ -868,6 +876,53 @@ def check_protected_routes_declare_identity(r: Result) -> None:
         r.ok("routes declare identity (ADR-0064 I-25)", f"{checked} db-touching handler(s) compliant")
 
 
+# ── Check 17: request models never accept an owner id (ADR-0065 I-30) ─────────
+def check_request_models_reject_owner_ids(r: Result) -> None:
+    roots = [REPO_ROOT / p for p in SEARCH_ROOTS if (REPO_ROOT / p).is_dir()]
+    if not roots:
+        r.armed("request models reject owner ids (I-30)", "no application source tree yet")
+        return
+
+    violations: list[str] = []
+    checked = 0
+    for root in roots:
+        for src in root.rglob("*.py"):
+            path_str = "/" + rel(src).replace("\\", "/")
+            if any(m in path_str for m in DB_BOUNDARY_EXEMPT_MARKERS):
+                continue
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                bases = {dotted_name(b).rpartition(".")[2] for b in node.bases}
+                if not bases & REQUEST_MODEL_BASES:
+                    continue
+                # Only inbound models: a response may legitimately carry an id.
+                if not node.name.lower().endswith(("request", "input", "payload", "command")):
+                    continue
+                checked += 1
+                for stmt in node.body:
+                    target = None
+                    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                        target = stmt.target.id
+                    elif isinstance(stmt, ast.Assign) and stmt.targets and isinstance(stmt.targets[0], ast.Name):
+                        target = stmt.targets[0].id
+                    if target and target.lower() in OWNER_FIELD_NAMES:
+                        violations.append(
+                            f"{rel(src)}:{stmt.lineno} {node.name}.{target} lets the client name "
+                            "the owner -- identity comes from the verified token (ADR-0061 I-4)"
+                        )
+
+    if violations:
+        for v in violations:
+            r.bad("request models reject owner ids (I-30)", v)
+    else:
+        r.ok("request models reject owner ids (I-30)", f"{checked} request model(s) clean")
+
+
 def main() -> int:
     r = Result()
     print("Aaroh governance checks")
@@ -889,6 +944,7 @@ def main() -> int:
     check_no_second_jwt_parser(r)
     check_no_token_logging(r)
     check_protected_routes_declare_identity(r)
+    check_request_models_reject_owner_ids(r)
 
     for line in r.lines:
         print(line)
