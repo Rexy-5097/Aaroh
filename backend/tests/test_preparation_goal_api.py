@@ -270,5 +270,16 @@ def test_malformed_payloads_are_rejected(client, key, bad):
     assert client.put(GOAL, json=payload(**bad), headers=auth(key, USER_A)).status_code == 422
 
 
+def test_boolean_weekly_hours_are_rejected_through_http(client, key, admin_conn):
+    """Regression: Pydantic coerces JSON `true` to 1, so a plain `int` field
+    would have silently recorded one hour per week. The domain layer rejects
+    bool, but coercion happened before it ever saw one. Found while testing the
+    DSA slice; the same latent defect existed here."""
+    assert client.put(GOAL, json=payload(weekly_hours=True),
+                      headers=auth(key, USER_A)).status_code == 422
+    count = admin_conn.execute("SELECT count(*) FROM public.preparation_goals").fetchone()[0]
+    assert count == 0
+
+
 def test_missing_body_is_rejected(client, key):
     assert client.put(GOAL, headers=auth(key, USER_A)).status_code == 422
