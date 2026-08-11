@@ -923,6 +923,74 @@ def check_request_models_reject_owner_ids(r: Result) -> None:
         r.ok("request models reject owner ids (I-30)", f"{checked} request model(s) clean")
 
 
+# ── Check 18: the domain layer stays pure (ADR-0067 section 1) ─────────────────────
+def check_domain_purity(r: Result) -> None:
+    """The engine's inputs must be as pure as the engine.
+
+    `check_engine_purity` inspects only files INSIDE the decision-engine package.
+    It cannot see an impurity reached THROUGH an input: a future `rank()` that
+    imports `app.domain.snapshot` passes that check even if the snapshot module
+    imports psycopg, because the forbidden import is one hop away.
+
+    ADR-0067 makes `StudentSnapshot` the engine's input and requires it to be
+    plain data independent of PostgreSQL, HTTP and authentication. This closes
+    the transitive hole before the engine exists, so the guarantee is structural
+    rather than a rule someone must remember when they write `rank()`.
+
+    Scope is the domain package only. `db/` legitimately imports domain types in
+    order to build them and `http/` imports both -- the dependency runs one way,
+    and this check is what keeps it running that way.
+    """
+    domain_dirs = [
+        REPO_ROOT / p for p in ("backend/app/domain", "backend/src/domain")
+        if (REPO_ROOT / p).is_dir()
+    ]
+    if not domain_dirs:
+        r.armed("domain purity (ADR-0067)", "no domain package yet")
+        return
+
+    # Reuses the engine's own forbidden list so the two cannot drift apart, plus
+    # the layers a domain module must never reach back into.
+    forbidden = ENGINE_FORBIDDEN_IMPORTS | {
+        "fastapi", "starlette", "pydantic", "jwt", "jose", "psycopg_pool",
+    }
+    forbidden_prefixes = ("app.db", "app.http", "app.auth")
+
+    violations: list[str] = []
+    files = 0
+    for d in domain_dirs:
+        for py in sorted(d.rglob("*.py")):
+            files += 1
+            try:
+                tree = ast.parse(py.read_text(encoding="utf-8"))
+            except SyntaxError as e:
+                violations.append(f"{rel(py)}: unparseable ({e})")
+                continue
+
+            for module, lineno in imported_modules(tree):
+                if matches(module, forbidden) or module.startswith(forbidden_prefixes):
+                    violations.append(
+                        f"{rel(py)}:{lineno} imports '{module}' -- the domain layer is the "
+                        "engine's input and must stay free of database, network, HTTP and "
+                        "authentication (ADR-0067)"
+                    )
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    name = dotted_name(node.func)
+                    for bad_call, why in ENGINE_FORBIDDEN_CALLS.items():
+                        if name == bad_call or name.endswith("." + bad_call):
+                            violations.append(
+                                f"{rel(py)}:{node.lineno} calls {name}() -- {why}"
+                            )
+
+    if violations:
+        for v in violations:
+            r.bad("domain purity (ADR-0067)", v)
+    else:
+        r.ok("domain purity (ADR-0067)", f"{files} domain module(s) pure")
+
+
 def main() -> int:
     r = Result()
     print("Aaroh governance checks")
@@ -945,6 +1013,7 @@ def main() -> int:
     check_no_token_logging(r)
     check_protected_routes_declare_identity(r)
     check_request_models_reject_owner_ids(r)
+    check_domain_purity(r)
 
     for line in r.lines:
         print(line)
