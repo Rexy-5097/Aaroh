@@ -79,3 +79,25 @@ class DsaActivityResponse(BaseModel):
     minutes_spent: int | None
     platform: str | None
     occurred_at: datetime
+
+
+class NextProblemResponse(BaseModel):
+    """Aaroh's recommendation: one problem, and why.
+
+    Deliberately absent: **no score and no confidence** -- `ADR-0071` section 3.1
+    made weakness ordinal with no magnitude, so there is no number to report, and
+    confidence has no definition anywhere. **No `user_id`** -- the caller knows
+    who they are, and echoing it would be the owner-id pattern I-30 forbids on
+    the way in. **No goal field** -- target role and company are High-class
+    (`standards/privacy.md`), and a recommendation does not need them.
+
+    `reason` is a machine-readable code from a closed two-value vocabulary, not
+    prose: `ADR-0059` places explanation downstream, template-first.
+    """
+
+    slug: str = Field(..., description="Immutable catalogue identity")
+    title: str = Field(..., description="The problem, as Aaroh names it")
+    topics: list[str] = Field(..., description="Approved topics this problem covers")
+    difficulty: str = Field(..., description="easy | medium | hard")
+    reason: str = Field(..., description="weak-topic | foundational")
+    reason_topic: str = Field(..., description="The topic that decided the ranking")
