@@ -87,6 +87,7 @@
 | [ADR-0067](../artifacts/decisions/ADR-0067-readiness-snapshot-contract.md) | Readiness snapshot: immutable point-in-time facts; interpretation stays in the engine | Accepted | 2026-08-11 | High |
 | [ADR-0068](../artifacts/decisions/ADR-0068-version-identity-and-immutability.md) | Version identity: immutable human-readable label, SHA-256 byte digest as integrity check; labels never reused | Accepted | 2026-08-12 | High |
 | [ADR-0071](../artifacts/decisions/ADR-0071-v1-score-model.md) | V1 score model: ordinal topic weakness by solve rate, 3-activity evidence threshold, equal candidate cost | Accepted | 2026-08-12 | High |
+| [ADR-0072](../artifacts/decisions/ADR-0072-ranking-output-contract.md) | Ranking output contract: repair-first, slug tie-break, four-field result; V1 engine boundary | Accepted | 2026-08-12 | High |
 | [ADR-0069](../artifacts/decisions/ADR-0069-dsa-catalogue-contract.md) | DSA-only V1 catalogue: slug identity, TOPICS tags, no time estimate; versioned file, not a table | Accepted | 2026-08-12 | High |
 | [ADR-0070](../artifacts/decisions/ADR-0070-ranking-signals-and-cold-start.md) | V1 ranking: topic weakness as sole signal; deadline a precondition only; explicit foundational topic ordering for cold start | Accepted | 2026-08-12 | High |
 
