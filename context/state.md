@@ -1,23 +1,29 @@
 # Project Heartbeat & Task State
 
-> **Last Heartbeat:** 2026-08-10
-> **Project State:** STAGE 0 IN PROGRESS — slice 1 complete, slice 2 not started
-> **Current baseline:** `v0.3.0-rls-harness`
+> **Last Heartbeat:** 2026-08-11
+> **Project State:** STAGE 0 — security foundation complete; two product data sources and the engine's snapshot input built. Engine not started.
+> **Current baseline:** `v0.9.0-snapshot-builder`
 > **Profile:** `aaroh` (see `profiles/aaroh.yaml`)
 
 ---
 
 ## Where the project stands
 
-Six foundational decisions are ratified and merged into `main`, the Aaroh-specific AgentOS governance that enforces them is live in CI, and **Stage 0 slice 1 is complete**: the database security boundary is now executable rather than documented.
+Eleven Aaroh decisions (ADR-0057…0067) are ratified and merged, the governance enforcing them runs in CI, and the security chain is executable rather than documented: RLS, JWT verification and the HTTP boundary.
 
-Application code exists, but only the security boundary: one table, the sanctioned database access layer, and its test suites. No product feature, no client, no AI.
+Two of the decision engine's four inputs now have real sources, and its `snapshot` input is built. **The engine itself does not exist** — `rank()` is unwritten, and the engine purity check is still ARMED because there is nothing yet to police. No catalogue, no weights, no AI, no client.
 
 | Checkpoint | Contents |
 |-----------|----------|
 | `v0.1.0-agentos-ready` | ADR-0057…0060, `profiles/aaroh.yaml`, Aaroh standards, `llm-reviewer`, QG-009…011, CI enforcement, protected `main` |
 | `v0.2.0-security-boundary` | ADR-0061 v1.1 (RLS and the data access boundary), ADR-0062 (raw SQL migrations), and the CI checks enforcing them |
-| **`v0.3.0-rls-harness`** | **Stage 0 slice 1 — sanctioned `backend/app/db/` access layer, first raw SQL migration, CI auth shim, 29 RLS tests, 10 governance regression tests** |
+| `v0.3.0-rls-harness` | Stage 0 slice 1 — sanctioned `backend/app/db/` access layer, first raw SQL migration, CI auth shim, 29 RLS tests, 10 governance regression tests |
+| `v0.4.0-auth-boundary` | Slice 2 — asymmetric JWT verification via JWKS, `VerifiedIdentity`, claim minimisation (ADR-0063) |
+| `v0.5.0-http-boundary` | Slice 3 — dependency-injected identity, uniform 401, no second trust path (ADR-0064) |
+| `v0.6.0-preparation-goal` | Product slice 1 — the engine's `constraints` input (ADR-0065) |
+| `v0.7.0-dsa-activity` | Product slice 2 — append-only DSA practice log, manual entry only (ADR-0066) |
+| `v0.8.0-snapshot-contract` | Decision-only — the readiness snapshot contract (ADR-0067) |
+| **`v0.9.0-snapshot-builder`** | **Product slice 3 — `StudentSnapshot` built from DSA history by bounded SQL aggregation; domain purity check added** |
 
 ---
 
@@ -28,8 +34,15 @@ Application code exists, but only the security boundary: one table, the sanction
 - `[x]` Ratify ADR-0057 (licence), ADR-0058 (stack), ADR-0059 (engine), ADR-0060 (weights)
 - `[x]` Create `profiles/aaroh.yaml` and Aaroh-specific standards, reviewer, and gates
 - `[x]` Ratify ADR-0061 (RLS and the data access boundary) and ADR-0062 (migration strategy)
-- `[x]` **Stage 0 slice 1 — RLS test harness** (PR #7, merged `fa4738e`, tagged `v0.3.0-rls-harness`)
-- `[ ]` **Next approved work — Stage 0 slice 2: Supabase Auth + JWT verification** (design report first)
+- `[x]` **Stage 0 slice 1 — RLS test harness** (PR #7, `v0.3.0-rls-harness`)
+- `[x]` **Stage 0 slice 2 — Supabase Auth + JWT verification** (PR #10, `v0.4.0-auth-boundary`)
+- `[x]` **Stage 0 slice 3 — HTTP authentication boundary** (PR #11, `v0.5.0-http-boundary`)
+- `[x]` **Product slice 1 — preparation goal** (PR #12, `v0.6.0-preparation-goal`)
+- `[x]` **Product slice 2 — DSA activity record** (PR #13, `v0.7.0-dsa-activity`)
+- `[x]` **Snapshot contract, decision only** (PR #14, `v0.8.0-snapshot-contract`)
+- `[x]` **Product slice 3 — snapshot builder** (PR #15, `v0.9.0-snapshot-builder`)
+- `[ ]` **BLOCKED — the decision engine contract.** Six decisions are missing before `rank()` can be
+  written; see "Decisions required before the engine" below. Implementation must not start first.
 
 ---
 
@@ -59,18 +72,54 @@ Shipped: `backend/app/db/session.py` (the only module permitted to open a connec
 
 ---
 
-## Next approved work — Stage 0 slice 2
+## Decisions required before the engine
 
-**Supabase Auth + JWT verification.** Completes the identity path:
+`rank()` cannot be written until these exist. Each was searched for and is genuinely
+absent, not merely undocumented — recorded here so the gap is visible rather than
+rediscovered.
 
-```
-Client -> Supabase Auth -> JWT -> verification (signature, exp, iss, aud)
-      -> verified identity -> request_transaction() -> SET LOCAL -> RLS
-```
+| # | Missing decision | Why it blocks |
+|---|-----------------|---------------|
+| ~~E1~~ | ~~Version identifier mechanism~~ | **Partly settled by ADR-0068**: an immutable human-readable label identifies an artifact, with a SHA-256 digest of its exact bytes as an integrity check; labels are never reused. The label *format* is deliberately still open, as are lifecycle, coexistence and per-user pinning. |
+| E2 | **Output contract** | `RankedResult` is a name with no fields. Investigated and **blocked**: it cannot be defined without task identity (E3), score semantics, tie-breaking and confidence semantics. Note ADR-0059's field list sits under a heading titled *Clients* and describes the **API response**, not `rank()`'s return value — the two are currently conflated. |
+| ~~E3~~ | ~~Catalogue contract~~ | **Settled by ADR-0069** (DSA-only V1): slug identity, `TOPICS` tags, difficulty reused with distinct meaning, no time estimate, versioned file rather than a table. Originally blocked at: nothing in the repository defines what a recommended *task* is. `context/architecture.md` says "career-preparation tasks", `README.md` says "single action" — phrases, not definitions. No task taxonomy, no identity scheme, no example item, no fields. Whether the catalogue is DSA-only or spans domains (resume, mock interviews) is undecided, and that single answer determines identity, fields, topic optionality and difficulty semantics. ADR-0067 §8 fixes only the join: catalogue topic tags must come from the same `TOPICS` tuple. |
+| E4 | **Weights semantics** | ADR-0060 fixes the architectural contract and states explicitly that no weight values are defined by it. Their shape, units and provenance format remain open. |
+| E5 | **Cold-start behaviour** | The requirement is recorded below; the behaviour is not. Default task selection, fallback ranking, minimum evidence and catalogue filtering are all undecided. |
+| E6 | **Tie-breaking and trace completeness** | No rule exists for equal scores — and byte-identical output (ADR-0059) makes a deterministic tie-break mandatory, not optional. ADR-0060's trace omits a catalogue version and a retention period, the latter required by `standards/privacy.md` for every data class. |
 
-Slice 1 built the second half; slice 2 builds the first. **No login or signup UI** — the cryptographic boundary is proven before any interface is drawn.
+| E4 | **Score model** | Investigated and **blocked**. *"Readiness gain"* appears exactly twice in the repository (`context/architecture.md`, `ADR-0060`) and is described, never defined. ADR-0060 §Context states outright that *"every coefficient in that calculation is, today, a hypothesis with no supporting evidence"*. Nothing defines how solving one DSA problem changes readiness, and no score scale, range, direction, type or precision exists anywhere. |
 
-A design report precedes implementation, and implementation requires separate approval.
+**S1 is already settled by existing decisions — no new ADR was needed.** The quantity
+that orders candidate tasks is **not** the Career Readiness Score:
+
+- `ADR-0065` defines the Career Readiness Score as *"a function of DSA state, resume
+  state and constraints"* — three inputs, and **no candidate parameter**. A quantity
+  that takes no candidate cannot order candidates.
+- `context/vision.md` ships them a stage apart: Stage 1 delivers *"transparent score +
+  confidence. **No recommender yet**"*, Stage 2 delivers *"ROI ranking"*. A quantity
+  that exists for a whole stage without any ranking is not the ranking quantity.
+- Nothing anywhere equates the two. `ADR-0060` shows the Career Readiness Score is also
+  weight-driven and engine-computed — shared machinery, not shared identity.
+
+**Consequence: V1 ranking does not require resume state.** `ADR-0067` §9 guarantees a
+snapshot is total and valid with zero history, so the engine has a usable input today.
+This is a derivation from accepted decisions, not a new decision, and it should be
+recorded as a premise in the score-model ADR rather than in an ADR of its own.
+
+Two structural findings from the score-model investigation:
+
+- **The Career Readiness Score cannot be computed in V1.** `ADR-0065` defines it as *"a function of DSA state, resume state and constraints"* — and resume state is deferred, with V1 approved as DSA-only. One of its three inputs does not exist.
+- **The ranking score and the Career Readiness Score are separable, and separating them unblocks V1.** `ADR-0059`'s contract is `rank()`, not `score_readiness()`; `README.md` says *"Aaroh is not a score… the score exists to make that decision inspectable"*; `context/vision.md` says *"the decision engine is the product"*. The engine needs a per-candidate **ordering** quantity, which needs no resume data. Conflating the two is what makes the score model look blocked on data it does not require.
+
+Two findings from the E2 and E3 investigations that are not blockers but change scope:
+
+- **The decision trace is High-class, and nothing currently says so.** ADR-0060 stores `constraints | deadline, time budget, target role`, and `standards/privacy.md` classes *target role* and *target company* as **High**. ADR-0067 deliberately kept the snapshot uniformly Medium so traces would not be promoted; the constraints half re-introduces High regardless. This pulls in audit logging and minimisation before any external call, and must be settled with the trace.
+- **A task catalogue would be Aaroh's first non-user-owned table.** `backend/tests/test_rls_structural.py` anticipates this explicitly and will fail loudly until an exemption is designed — *"an explicit allow-list keyed to an ADR, with the exempted table still asserted for the properties that do apply"*. The catalogue is therefore a security decision as well as a product one. |
+
+**`rank()` arity is also stated two ways** — three arguments in ADR-0059 §"Conceptual
+contract" and ADR-0065 (which quotes it), four in ADR-0060 §Consequences and
+`standards/decision_engine.md`. The evidence favours four, but resolving it is an
+owner decision and no ADR text has been amended.
 
 ---
 
